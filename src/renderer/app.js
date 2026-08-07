@@ -84,19 +84,13 @@ const fetch_image_dimensions = async (base_url, image_name) => {
   }
 }
 
-// Centre on the image and zoom to fit, rather than hardcoding per dataset.
-// Verified against the gallery embed: its hand-tuned ini_x = 15500 for the
-// mouse brain is exactly that image's width / 2.
-const compute_initial_view = (dims, view_width, view_height) => {
-  if (!dims) return { ini_x: 0, ini_y: 0, ini_zoom: -5 }
-
-  const fit = Math.min(view_width / dims.width, view_height / dims.height) * 0.92
-  return {
-    ini_x: dims.width / 2,
-    ini_y: dims.height / 2,
-    ini_zoom: Math.log2(fit),
-  }
-}
+// Celldega auto-fits the camera when ini_x/ini_y/ini_z/ini_zoom are all zero:
+// set_initial_view_state falls back to viz_state.spatial's center_x/center_y/
+// ini_zoom, which it derives from the dataset's own extent. That is better than
+// computing a fit here -- it works for every technology and needs no image
+// pyramid. The gallery embeds pass hand-tuned values only to open on a specific
+// region; for a general viewer, whole-dataset is the right default.
+const AUTO_FIT_VIEW = { ini_x: 0, ini_y: 0, ini_z: 0, ini_zoom: 0 }
 
 // ------------------------------------------------------------ status ui
 
@@ -193,9 +187,10 @@ const load_dataset = async (source) => {
   const view_width = el.clientWidth
   const view_height = el.clientHeight
 
+  // Fetched only for the dimensions pill -- the camera is auto-fit by celldega
   const image_name = manifest.image_info?.[0]?.name
   const dims = image_name ? await fetch_image_dimensions(base_url, image_name) : null
-  const { ini_x, ini_y, ini_zoom } = compute_initial_view(dims, view_width, view_height)
+  const { ini_x, ini_y, ini_z, ini_zoom } = AUTO_FIT_VIEW
 
   const pills = [technology]
   if (dims) pills.push(`${dims.width.toLocaleString()} × ${dims.height.toLocaleString()} px`)
@@ -217,7 +212,7 @@ const load_dataset = async (source) => {
         '',
         ini_x,
         ini_y,
-        0,
+        ini_z,
         ini_zoom,
         '',
         view_width,
@@ -234,7 +229,7 @@ const load_dataset = async (source) => {
         '',            // token
         ini_x,
         ini_y,
-        0,             // ini_z
+        ini_z,
         ini_zoom,
         base_url,
         '',            // dataset_name

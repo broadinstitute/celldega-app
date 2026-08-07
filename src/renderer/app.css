@@ -14,7 +14,7 @@
 :root {
   --fg: #1c1f24;
   --fg-muted: #5b6470;
-  --bg: #fafbfc;
+  --bg: #ffffff;
   --bg-card: #ffffff;
   --bg-elevated: #ffffff;
   --border: #e3e6ea;
@@ -28,23 +28,27 @@
   --shadow-lg: 0 8px 32px rgba(15, 22, 36, 0.16);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --fg: #e8ecf1;
-    --fg-muted: #9aa3b1;
-    --bg: #14171c;
-    --bg-card: #1c2027;
-    --bg-elevated: #222731;
-    --border: #2a2f38;
-    --accent: #56b4e9;
-    --accent-hover: #88c9ee;
-    --accent-contrast: #0d1117;
-    --code-bg: #20242c;
-    --danger: #f28b82;
-    --danger-bg: #2a1d1d;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
+/*
+  Dark palette is kept but opt-in rather than automatic: Celldega's own control
+  panel renders into #landscape, and against a dark app surface it reads poorly.
+  The app forces light (see nativeTheme.themeSource in main.js). To re-enable,
+  set data-theme="dark" on <html> -- or restore the prefers-color-scheme query.
+*/
+:root[data-theme='dark'] {
+  --fg: #e8ecf1;
+  --fg-muted: #9aa3b1;
+  --bg: #14171c;
+  --bg-card: #1c2027;
+  --bg-elevated: #222731;
+  --border: #2a2f38;
+  --accent: #56b4e9;
+  --accent-hover: #88c9ee;
+  --accent-contrast: #0d1117;
+  --code-bg: #20242c;
+  --danger: #f28b82;
+  --danger-bg: #2a1d1d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
 * { box-sizing: border-box; }

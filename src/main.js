@@ -104,7 +104,7 @@ const create_window = () => {
     height: 940,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#14171c' : '#fafbfc',
+    backgroundColor: '#ffffff',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false,
     webPreferences: {
@@ -267,6 +267,11 @@ const register_ipc = () => {
 // ------------------------------------------------------------------ boot
 
 app.whenReady().then(async () => {
+  // Force light: Celldega's control panel renders into the page, and a dark
+  // app surface makes it hard to read. This also keeps the native title bar
+  // and form controls light regardless of the OS setting.
+  nativeTheme.themeSource = 'light'
+
   server = await start_server({
     renderer_root: RENDERER_ROOT,
     celldega_entry: resolve_celldega_entry(),
