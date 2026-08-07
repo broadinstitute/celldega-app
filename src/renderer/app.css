@@ -1,0 +1,390 @@
+/*
+  Design tokens follow the Celldega bike_network_traffic site: system font
+  stack, CSS custom properties, prefers-color-scheme dark mode, Okabe-Ito
+  accent (colorblind-safe, and already matched to the widget palette).
+
+  No external fonts or stylesheets -- everything is local, so the app renders
+  identically offline and needs no CSP exceptions.
+
+  The one departure from that site: it is a centered *document*; this is a
+  *viewport*. Fixed chrome, canvas fills the rest, nothing scrolls but the
+  start screen.
+*/
+
+:root {
+  --fg: #1c1f24;
+  --fg-muted: #5b6470;
+  --bg: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #ffffff;
+  --border: #e3e6ea;
+  --accent: #0072b2;
+  --accent-hover: #005383;
+  --accent-contrast: #ffffff;
+  --code-bg: #f1f3f5;
+  --danger: #b4342a;
+  --danger-bg: #fdf1f0;
+  --shadow: 0 1px 2px rgba(15, 22, 36, 0.04), 0 4px 12px rgba(15, 22, 36, 0.04);
+  --shadow-lg: 0 8px 32px rgba(15, 22, 36, 0.16);
+}
+
+/*
+  Dark palette is kept but opt-in rather than automatic: Celldega's own control
+  panel renders into #landscape, and against a dark app surface it reads poorly.
+  The app forces light (see nativeTheme.themeSource in main.js). To re-enable,
+  set data-theme="dark" on <html> -- or restore the prefers-color-scheme query.
+*/
+:root[data-theme='dark'] {
+  --fg: #e8ecf1;
+  --fg-muted: #9aa3b1;
+  --bg: #14171c;
+  --bg-card: #1c2027;
+  --bg-elevated: #222731;
+  --border: #2a2f38;
+  --accent: #56b4e9;
+  --accent-hover: #88c9ee;
+  --accent-contrast: #0d1117;
+  --code-bg: #20242c;
+  --danger: #f28b82;
+  --danger-bg: #2a1d1d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+
+/*
+  Must come before any rule that sets `display`. An explicit `display: flex` in
+  a class rule beats the UA stylesheet's `[hidden] { display: none }`, so
+  without this the viewer, the status overlay, and the URL modal all stay
+  visible regardless of their hidden attribute.
+*/
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.app { height: 100vh; display: flex; flex-direction: column; }
+
+/* ------------------------------------------------------------- controls */
+
+.btn {
+  font: inherit;
+  font-weight: 550;
+  padding: 8px 16px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
+.btn-ghost:hover { background: var(--code-bg); border-color: transparent; color: var(--fg); }
+
+.linkish {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.86rem;
+}
+.linkish:hover { color: var(--accent-hover); text-decoration: underline; }
+
+.pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+
+.banner {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  margin: 16px 0 0;
+  border: 1px solid transparent;
+}
+.banner-error { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+
+/* --------------------------------------------------------- start screen */
+
+.start-screen { flex: 1; overflow-y: auto; }
+
+.start-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 88px;
+}
+body.is-mac .start-inner { padding-top: 72px; }
+
+.start-header { margin-bottom: 28px; }
+.start-header h1 {
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+.tagline { color: var(--fg-muted); margin: 0 0 16px; font-size: 1.05rem; }
+
+.action-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.section { margin-top: 44px; }
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.section-head h2 {
+  font-size: 1.1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.section-note { color: var(--fg-muted); font-size: 0.86rem; margin: 10px 0 0; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* tracks must be allowed to shrink below their content */
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 16px;
+}
+
+/* Adapted from the site's .city-card -- same swatch + name/detail/meta stack */
+.card {
+  display: block;
+  text-align: left;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  font: inherit;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: inherit;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.card .swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+/*
+  Dataset names and local paths are long, unbroken, underscore-heavy strings.
+  Without an explicit min-width: 0 a grid/flex item refuses to shrink below its
+  content, so the name pushes the card wider than its track and spills across
+  the page. Truncate the name to one line and clamp the path to two; the full
+  value is on the element's title attribute.
+*/
+.card .name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 650;
+  font-size: 1rem;
+  letter-spacing: -0.005em;
+}
+.card .name .label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card .detail {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card .meta { color: var(--fg-muted); font-size: 0.76rem; margin-top: 10px; }
+
+/* --------------------------------------------------------------- viewer */
+
+.viewer { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  -webkit-app-region: drag;
+  flex: none;
+}
+body.is-mac .toolbar { padding-left: 84px; }
+
+.toolbar button, .toolbar select, .toolbar .pill { -webkit-app-region: no-drag; }
+
+.toolbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.toolbar-title { min-width: 0; }
+.toolbar-title strong { font-weight: 620; font-size: 0.95rem; }
+.toolbar-detail {
+  display: block;
+  color: var(--fg-muted);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46vw;
+}
+
+.canvas-wrap { flex: 1; position: relative; min-height: 0; background: var(--bg); }
+#landscape { position: absolute; inset: 0; overflow: hidden; }
+#landscape canvas { display: block; }
+
+/* -------------------------------------------------------------- overlay */
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  z-index: 5;
+}
+.overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 32px;
+  max-width: 520px;
+  text-align: center;
+}
+.overlay-text { font-size: 1rem; font-weight: 550; }
+.overlay-sub { color: var(--fg-muted); font-size: 0.86rem; overflow-wrap: anywhere; }
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 720ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+  .card, .btn { transition: none; }
+}
+
+/* ---------------------------------------------------------------- modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 20, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 24px;
+}
+
+.modal {
+  width: min(520px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  padding: 22px 24px;
+}
+.modal h3 { margin: 0 0 6px; font-size: 1.15rem; font-weight: 650; letter-spacing: -0.01em; }
+.modal-note { color: var(--fg-muted); font-size: 0.85rem; margin: 0 0 16px; }
+
+.field { display: block; margin-bottom: 14px; }
+.field span {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  margin-bottom: 5px;
+}
+.field input {
+  font: inherit;
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+}
+.field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+.advanced { margin: 4px 0 8px; }
+.advanced summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  padding: 6px 0;
+}
+.advanced summary:hover { color: var(--fg); }
+
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }

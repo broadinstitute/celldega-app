@@ -1,0 +1,87 @@
+# Build installers for all three platforms and attach them to a GitHub Release.
+#
+# Electron Forge can only build for the platform it runs on, so this fans out
+# across three runners. Push a tag to trigger it:
+#
+#   npm version 0.1.0 && git push --follow-tags
+#
+# Or run it by hand from the Actions tab.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest      # Apple Silicon
+            name: macos-arm64
+          - os: macos-13          # Intel
+            name: macos-x64
+          - os: windows-latest
+            name: windows-x64
+          - os: ubuntu-latest
+            name: linux-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run make
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: celldega-app-${{ matrix.name }}
+          path: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.deb
+            out/make/**/*.rpm
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          body: |
+            Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js.
+
+            **Downloads**
+            - macOS (Apple Silicon): `*macos-arm64*.dmg`
+            - macOS (Intel): `*macos-x64*.dmg`
+            - Windows: `Celldega-Setup.exe`
+            - Linux: `.deb`, `.rpm`, or `.zip`
+
+            Nothing else is required — Node.js is **not** needed to run the app.
+
+            > These builds are unsigned. On macOS, right-click the app and choose
+            > **Open** the first time (or *System Settings → Privacy & Security →
+            > Open Anyway*). Windows will show a SmartScreen warning; choose
+            > **More info → Run anyway**.

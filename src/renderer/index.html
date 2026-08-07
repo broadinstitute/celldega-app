@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  connect-src needs https: for direct remote datasets, and data: because the
+  celldega bundle inlines parquet-wasm as a base64 data URI.
+  'wasm-unsafe-eval' lets that module instantiate; blob: covers deck.gl workers.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'wasm-unsafe-eval' blob:;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob: https: http://127.0.0.1:*;
+  connect-src 'self' data: blob: https: http://127.0.0.1:*;
+  worker-src 'self' blob:;
+  font-src 'self';
+">
+<title>Celldega-App</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Start screen -->
+  <section id="start_screen" class="start-screen">
+    <div class="start-inner">
+      <header class="start-header">
+        <h1>Celldega-App</h1>
+        <p class="tagline">
+          Open a local or remote DegaFiles / Landscape dataset.
+        </p>
+        <div class="pill-row" id="version_pills">
+          <span class="pill">Celldega.js 0.24.1</span>
+          <span class="pill">deck.gl · WebGL</span>
+        </div>
+      </header>
+
+      <div class="action-row">
+        <button class="btn btn-primary" id="btn_open_local">Open Local Folder…</button>
+        <button class="btn" id="btn_open_remote">Open Remote URL…</button>
+      </div>
+
+      <div id="start_error" class="banner banner-error" hidden></div>
+
+      <section class="section" id="recents_section" hidden>
+        <div class="section-head">
+          <h2>Recent</h2>
+          <button class="linkish" id="btn_clear_recents">Clear</button>
+        </div>
+        <div class="card-grid" id="recents_grid"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>Example datasets</h2>
+          <button class="linkish" id="btn_open_gallery">View gallery</button>
+        </div>
+        <p class="section-note">
+          Public datasets streamed from GitHub. The first load fetches image
+          tiles over the network, so give it a moment.
+        </p>
+        <div class="card-grid" id="demos_grid"></div>
+      </section>
+    </div>
+  </section>
+
+  <!-- Viewer -->
+  <section id="viewer" class="viewer" hidden>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="btn btn-ghost" id="btn_back" title="Close dataset">←</button>
+        <div class="toolbar-title">
+          <strong id="viewer_label">—</strong>
+          <span class="toolbar-detail" id="viewer_detail"></span>
+        </div>
+      </div>
+      <div class="pill-row" id="viewer_pills"></div>
+    </div>
+
+    <div class="canvas-wrap">
+      <div id="landscape"></div>
+
+      <div class="overlay" id="viewer_status" hidden>
+        <div class="overlay-card">
+          <div class="spinner" id="status_spinner"></div>
+          <div class="overlay-text" id="status_text">Loading…</div>
+          <div class="overlay-sub" id="status_sub"></div>
+          <button class="btn btn-ghost" id="status_dismiss" hidden>Back</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Remote URL dialog -->
+  <div class="modal-backdrop" id="remote_modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="remote_modal_title">
+      <h3 id="remote_modal_title">Open remote dataset</h3>
+      <p class="modal-note">
+        Base URL of the directory containing <code>landscape_parameters.json</code>.
+      </p>
+
+      <label class="field">
+        <span>Dataset URL</span>
+        <input type="url" id="remote_url" placeholder="https://example.org/path/to/dataset" spellcheck="false">
+      </label>
+
+      <details class="advanced">
+        <summary>S3 credentials (optional)</summary>
+        <p class="modal-note">
+          Only needed for private buckets. Held in memory for this session and
+          never written to disk.
+        </p>
+        <label class="field">
+          <span>Access Key ID</span>
+          <input type="text" id="remote_access_key" spellcheck="false" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Secret Access Key</span>
+          <input type="password" id="remote_secret_key" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Session Token</span>
+          <input type="password" id="remote_session_token" autocomplete="off">
+        </label>
+      </details>
+
+      <div id="remote_error" class="banner banner-error" hidden></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn_remote_cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn_remote_open">Open</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
