@@ -21,18 +21,16 @@ const state = {
 
 // --------------------------------------------------------------- helpers
 
-// Celldega reads widget state through a model object. Standalone there is no
-// widget, so we pass a no-op stub: every get() returns undefined, which is what
-// the internal `?? default` fallbacks already expect, and set/on/save_changes
-// are absorbed harmlessly. (The gallery embed passes a bare {}; the stub is the
-// same thing with the callback methods present so nothing can throw.)
-const make_stub_model = () => ({
-  get: () => undefined,
-  set: () => {},
-  save_changes: () => {},
-  on: () => {},
-  off: () => {},
-})
+// Celldega reads widget state through an anywidget model. Standalone there is
+// no widget, and we must pass a BARE object -- not a stub with a get() method.
+//
+// Celldega branches on `typeof model?.get === 'function'` to decide whether it
+// is running inside a widget. A stub makes that check true, so it takes the
+// widget path and then reads undefined for every trait (which fails with
+// "Cannot convert undefined or null to object"). With {} the check is false and
+// it correctly uses the standalone defaults, fetching everything from base_url.
+// This is what the published gallery embed passes.
+const make_standalone_model = () => ({})
 
 const fetch_manifest = async (base_url) => {
   const response = await fetch(`${base_url}/landscape_parameters.json`, { cache: 'no-store' })
@@ -209,7 +207,7 @@ const load_dataset = async (source) => {
 
   try {
     const creds = source.creds || {}
-    const model = make_stub_model()
+    const model = make_standalone_model()
 
     if (technology === 'h&e') {
       state.cleanup = await celldega.landscape_h_e(
@@ -382,7 +380,7 @@ const render_demos = async () => {
       make_card({
         name: demo.label,
         detail: demo.detail,
-        meta: 'Streamed from GitHub',
+        meta: demo.is_default ? 'Suggested · streamed from GitHub' : 'Streamed from GitHub',
         on_click: () => open_remote_url(demo.base_url, demo.label, demo.detail, 'demo'),
       })
     )

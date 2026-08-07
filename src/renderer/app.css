@@ -49,6 +49,14 @@
 
 * { box-sizing: border-box; }
 
+/*
+  Must come before any rule that sets `display`. An explicit `display: flex` in
+  a class rule beats the UA stylesheet's `[hidden] { display: none }`, so
+  without this the viewer, the status overlay, and the URL modal all stay
+  visible regardless of their hidden attribute.
+*/
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;

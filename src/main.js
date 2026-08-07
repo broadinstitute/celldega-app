@@ -22,6 +22,13 @@ const MAX_RECENTS = 12
 // the renderer's direct fetch path handles them without the proxy.
 const DEMO_DATASETS = [
   {
+    label: 'Human Pancreas',
+    detail: 'Xenium V1 · FFPE · 4 image channels',
+    base_url:
+      'https://raw.githubusercontent.com/broadinstitute/celldega_Xenium_human_Pancreas_FFPE/main/Landscape_Xenium_V1_human_Pancreas_FFPE_outs_webp',
+    is_default: true,
+  },
+  {
     label: 'Mouse Brain Coronal',
     detail: 'Xenium Prime · fresh frozen',
     base_url:
@@ -44,12 +51,6 @@ const DEMO_DATASETS = [
     detail: 'Xenium V1 · CRC add-on, FFPE',
     base_url:
       'https://raw.githubusercontent.com/broadinstitute/celldega_Xenium_V1_Human_Colon_Cancer_P2_CRC_Add_on_FFPE_outs/main/Xenium_V1_Human_Colon_Cancer_P2_CRC_Add_on_FFPE_outs',
-  },
-  {
-    label: 'Human Pancreas',
-    detail: 'Xenium V1 · FFPE',
-    base_url:
-      'https://raw.githubusercontent.com/broadinstitute/celldega_Xenium_human_Pancreas_FFPE/main/Landscape_Xenium_V1_human_Pancreas_FFPE_outs_webp',
   },
 ]
 
