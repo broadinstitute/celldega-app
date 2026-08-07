@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('celldega_app', {
   // Re-mount a recent local folder (mount ids are per-launch)
   reopen_local_path: (dir_path) => ipcRenderer.invoke('reopen_local_path', dir_path),
 
+  // Session-only credential cache (memory in the main process, never on disk)
+  has_session_creds: (url) => ipcRenderer.invoke('has_session_creds', url),
+  forget_session_creds: (url) => ipcRenderer.invoke('forget_session_creds', url),
+  clear_session_creds: () => ipcRenderer.invoke('clear_session_creds'),
+
   // Built-in demo datasets from the Celldega gallery
   get_demo_datasets: () => ipcRenderer.invoke('get_demo_datasets'),
 

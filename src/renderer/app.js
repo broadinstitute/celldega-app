@@ -200,7 +200,15 @@ const load_dataset = async (source) => {
     const had_creds = Boolean(source.creds && source.creds.accessKeyId)
 
     let hint
-    if (denied && had_creds) {
+    if (denied && source.creds_from_session) {
+      // Reused credentials no longer work -- most likely an expired STS token.
+      // Drop them so the next attempt prompts for fresh ones.
+      await api.forget_session_creds(source.detail).catch(() => {})
+      hint =
+        'The credentials saved earlier in this session no longer work — they have most likely ' +
+        'expired. They have been discarded; reopen the dataset with File > Open Remote URL to ' +
+        'enter fresh ones.'
+    } else if (denied && had_creds) {
       hint =
         'Access denied. The credentials were rejected, or they lack permission for this bucket. ' +
         'Check the key and secret, include a session token if they are temporary, and note that ' +

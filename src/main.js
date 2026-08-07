@@ -57,6 +57,16 @@ const DEMO_DATASETS = [
 let server = null
 let main_window = null
 
+// Credentials for private datasets, cached for the lifetime of this process so
+// a dataset can be reopened from Recents without retyping them.
+//
+// In memory only, keyed by normalised base URL. Never written to disk -- the
+// recents file on disk still stores no credentials at all (see add_recent), so
+// nothing survives a quit. Held in main rather than the renderer so it survives
+// a window reload, and so the renderer only receives credentials when it is
+// about to sign a request with them.
+const session_creds = new Map()
+
 // The celldega bundle is a single pre-built ESM file. Resolve it from
 // node_modules rather than copying it, so the pinned version is the one served.
 //
@@ -178,6 +188,25 @@ const build_menu = () => {
           accelerator: 'CmdOrCtrl+W',
           click: () => send_menu_action('close_dataset'),
         },
+        {
+          label: 'Forget Stored Credentials',
+          click: () => {
+            const count = session_creds.size
+            session_creds.clear()
+            if (main_window) {
+              dialog.showMessageBox(main_window, {
+                type: 'info',
+                message:
+                  count === 0
+                    ? 'No credentials were stored.'
+                    : `Forgot credentials for ${count} dataset${count === 1 ? '' : 's'}.`,
+                detail:
+                  'Credentials are only ever kept in memory for the current session and are never written to disk.',
+                buttons: ['OK'],
+              })
+            }
+          },
+        },
         { type: 'separator' },
         is_mac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -234,9 +263,44 @@ const register_ipc = () => {
   })
 
   ipcMain.handle('resolve_remote_dataset', async (_event, { url, creds }) => {
-    const use_auth = creds && (creds.accessKeyId || creds.secretAccessKey)
-    if (use_auth) return authenticated_source.resolve(url, creds, server)
+    const key = http_source.normalize_url(url)
+    const supplied = creds && (creds.accessKeyId || creds.secretAccessKey)
+
+    if (supplied) {
+      const result = await authenticated_source.resolve(url, creds, server)
+      // Only remember credentials that actually resolved cleanly
+      if (result.ok && key) session_creds.set(key, result.source.creds)
+      return result
+    }
+
+    // Reopening from Recents sends no credentials; reuse this session's if the
+    // same dataset was opened successfully earlier.
+    if (key && session_creds.has(key)) {
+      const result = await authenticated_source.resolve(url, session_creds.get(key), server)
+      if (result.ok) return { ...result, source: { ...result.source, creds_from_session: true } }
+    }
+
     return http_source.resolve(url, server)
+  })
+
+  ipcMain.handle('has_session_creds', async (_event, url) => {
+    const key = http_source.normalize_url(url)
+    return Boolean(key && session_creds.has(key))
+  })
+
+  ipcMain.handle('clear_session_creds', async () => {
+    const count = session_creds.size
+    session_creds.clear()
+    return count
+  })
+
+  // Cached credentials go stale -- temporary STS tokens expire. Drop them on an
+  // auth failure so the next attempt asks for fresh ones instead of retrying
+  // dead credentials forever.
+  ipcMain.handle('forget_session_creds', async (_event, url) => {
+    const key = http_source.normalize_url(url)
+    if (key) session_creds.delete(key)
+    return true
   })
 
   ipcMain.handle('get_demo_datasets', async () =>
