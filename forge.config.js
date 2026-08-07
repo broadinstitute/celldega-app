@@ -6,6 +6,8 @@
 // single 10.7 MB pre-bundled ESM file, which local_server.js reads off disk
 // (fs reads work inside asar) and serves at /vendor/celldega.js.
 
+const { version } = require('./package.json')
+
 module.exports = {
   packagerConfig: {
     asar: true,
@@ -22,7 +24,10 @@ module.exports = {
       name: '@electron-forge/maker-dmg',
       platforms: ['darwin'],
       config: {
-        name: 'Celldega-App',
+        // Must include the arch: the Apple Silicon and Intel runners both
+        // attach their .dmg to the same GitHub Release, and identical
+        // filenames would collide there.
+        name: `Celldega-App-${version}-${process.arch}`,
         format: 'ULFO',
       },
     },

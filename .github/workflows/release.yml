@@ -23,16 +23,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # macOS is the priority platform -- these two must pass.
           - os: macos-latest      # Apple Silicon
             name: macos-arm64
+            required: true
           - os: macos-13          # Intel
             name: macos-x64
+            required: true
+          # Best-effort: a failure here must not block a macOS release, since
+          # the release job depends on this one completing.
           - os: windows-latest
             name: windows-x64
+            required: false
           - os: ubuntu-latest
             name: linux-x64
+            required: false
 
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.required }}
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +49,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      # maker-rpm needs the rpm binary and maker-deb needs fakeroot; neither is
+      # present on the ubuntu runner by default.
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
 
       - run: npm ci
 
