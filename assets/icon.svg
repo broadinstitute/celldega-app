@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  App icon: the Celldega logo mark centred on a white rounded square.
+  App icon: the Celldega logo mark on a transparent background.
 
   Built as vector so every raster size is rendered directly from this file
-  rather than resampled from one bitmap. The white plate follows the macOS
-  icon grid (824x824 inside a 1024 canvas) and keeps the blue mark legible
-  on dark docks and dark Finder backgrounds, where a transparent logo
-  would nearly disappear.
+  rather than resampled from one bitmap.
 
-  Logo mark is Celldega_LOGO_Full_Color_Logo_Mark.svg (viewBox 174.4x112.1),
-  scaled 3.784x and centred.
+  No background plate, so the mark is inset to roughly 80% of the canvas
+  rather than the 64% a plate would allow. Transparent icons read as smaller
+  than plated ones at the same scale, and macOS expects the artwork itself
+  to fill most of the tile.
+
+  Logo mark is the official "Full Color / Logo Mark" variant
+  (viewBox 174.4x112.1), scaled 4.702x and centred.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#ffffff"/>
-  <g transform="translate(182 300) scale(3.784)">
+  <g transform="translate(102 248.5) scale(4.702)">
     <rect fill="#006db6" x="95.1" y="3.9" width="30.2" height="51.8"/>
     <rect fill="#00afd7" x="140.5" y="3.9" width="30.2" height="51.8"/>
     <rect fill="#00afd7" x="49.8" y="3.9" width="30.2" height="51.8"/>

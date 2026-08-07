@@ -3,8 +3,14 @@
 `icon.svg` is the source of truth. Everything else here is generated from it —
 edit the SVG, regenerate, never hand-edit the rasters.
 
-It is the Celldega logo mark centred on a white rounded square that follows the
-macOS icon grid (824×824 inside a 1024 canvas).
+It is the Celldega logo mark on a **transparent** background, inset to roughly
+80% of a 1024 canvas.
+
+An earlier version sat on a white rounded plate for contrast against dark Docks.
+Rendering the mark over both light and dark backgrounds showed the blue holds up
+unaided, so the plate was dropped — a transparent icon sits better alongside
+other macOS app icons. The artwork is scaled up to compensate, since an unplated
+mark reads smaller than a plated one at the same size.
 
 The mark comes from the official brand set, `Celldega_LOGO_Full Color_Logo
 Mark.svg` — the "Full Color / Logo Mark" variant (mark only, no wordmark, which
@@ -12,10 +18,6 @@ is what an app icon needs). It is byte-identical to the copy vendored at
 `docs/assets/img/Celldega_LOGO_Full_Color_Logo_Mark.svg` in the
 [celldega](https://github.com/broadinstitute/celldega) repo. Its paths are
 inlined into `icon.svg` so this repo has no external asset dependency.
-
-The white plate is deliberate. The mark is blue on transparent, which nearly
-disappears against a dark Dock or a dark Finder sidebar; the plate keeps it
-legible everywhere.
 
 ## Why the app icon is not an SVG
 

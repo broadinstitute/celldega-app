@@ -31,13 +31,26 @@ you want to build the app from source yourself.
 
 ### First launch on macOS and Windows
 
-v0.1.0 is **unsigned**, so the OS will warn on first launch:
+The app is **unsigned**, so the OS blocks it on first launch:
 
-- **macOS** — right-click the app → **Open** (or *System Settings → Privacy &
-  Security → Open Anyway*). Only needed once.
-- **Windows** — SmartScreen → **More info** → **Run anyway**.
+> "Apple could not verify 'celldega' is free of malware that may harm your Mac…"
 
-Signing removes this; see [Code signing](#code-signing).
+**macOS 15 (Sequoia) and later.** Right-click → Open **no longer works** — Apple
+removed that bypass for un-notarized apps. Use one of:
+
+- *System Settings → Privacy & Security*, scroll to **Security**, then click
+  **Open Anyway** next to the blocked-app message, and confirm. Only needed once.
+- Or clear the download quarantine flag directly:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Celldega.app
+  ```
+
+**macOS 14 (Sonoma) and earlier.** Right-click the app → **Open** → **Open**.
+
+**Windows.** SmartScreen → **More info** → **Run anyway**.
+
+Signing removes all of this; see [Code signing](#code-signing).
 
 ### Trying it without any data
 
