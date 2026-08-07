@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  App icon: the Celldega logo mark centred on a white rounded square.
+
+  Built as vector so every raster size is rendered directly from this file
+  rather than resampled from one bitmap. The white plate follows the macOS
+  icon grid (824x824 inside a 1024 canvas) and keeps the blue mark legible
+  on dark docks and dark Finder backgrounds, where a transparent logo
+  would nearly disappear.
+
+  Logo mark is Celldega_LOGO_Full_Color_Logo_Mark.svg (viewBox 174.4x112.1),
+  scaled 3.784x and centred.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="#ffffff"/>
+  <g transform="translate(182 300) scale(3.784)">
+    <rect fill="#006db6" x="95.1" y="3.9" width="30.2" height="51.8"/>
+    <rect fill="#00afd7" x="140.5" y="3.9" width="30.2" height="51.8"/>
+    <rect fill="#00afd7" x="49.8" y="3.9" width="30.2" height="51.8"/>
+    <rect fill="#006db6" x="4.4" y="3.9" width="30.2" height="51.8"/>
+    <path fill="#006db6" d="M171.5,85.9c-1,14-11,22.5-21,22.1h-.1c-9.7.3-19.4-7.6-20.9-20.8-1.6,13.2-11.2,21.1-20.9,20.8h0c-9.7.3-19.4-7.6-20.9-20.8-1.6,13.2-11.2,21.1-20.9,20.8h0c-9.7.3-19.4-7.6-20.9-20.8-1.6,13.2-11.2,21.1-20.9,20.8h-.1c-10,.3-20-8.2-21.1-22.1-.3-4.4-.2-12.8-.2-17.5h168.6c0,4.7,0,13.1-.2,17.5h-.3Z"/>
+  </g>
+</svg>

@@ -14,6 +14,9 @@ module.exports = {
     name: 'Celldega',
     executableName: 'celldega',
     appBundleId: 'org.broadinstitute.celldega',
+    // Extension-less on purpose: packager appends .icns on macOS and .ico on
+    // Windows. Both are generated from assets/icon.svg -- see assets/README.md.
+    icon: 'assets/icon',
     // v0.1.0 ships unsigned. Add osxSign/osxNotarize here once Apple
     // developer credentials are available -- see README "Code signing".
   },
@@ -28,6 +31,7 @@ module.exports = {
       // be labelled "arm64" despite also running on Intel.
       config: (arch) => ({
         name: `Celldega-App-${version}-${arch}`,
+        icon: 'assets/icon.icns',
         // Volume name, shown when the DMG is mounted. Must be set explicitly
         // and kept short: it defaults to `name`, and macOS alias records cap
         // volume names at 27 chars -- "Celldega-App-0.1.0-universal" is 28,
@@ -46,6 +50,7 @@ module.exports = {
       config: {
         name: 'celldega',
         setupExe: 'Celldega-Setup.exe',
+        setupIcon: 'assets/icon.ico',
       },
     },
     {

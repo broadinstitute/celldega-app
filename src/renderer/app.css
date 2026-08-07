@@ -160,11 +160,16 @@ body.is-mac .start-inner { padding-top: 72px; }
 
 .start-header { margin-bottom: 28px; }
 .start-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   font-size: 2.1rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0 0 6px;
 }
+/* Vector, so it stays crisp at any zoom or display density */
+.start-header h1 .logo { flex: none; display: block; }
 .tagline { color: var(--fg-muted); margin: 0 0 16px; font-size: 1.05rem; }
 
 .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
