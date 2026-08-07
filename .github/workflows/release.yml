@@ -93,15 +93,47 @@ jobs:
           body: |
             Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js.
 
-            **Downloads**
-            - macOS (Apple Silicon): `*macos-arm64*.dmg`
-            - macOS (Intel): `*macos-x64*.dmg`
-            - Windows: `Celldega-Setup.exe`
-            - Linux: `.deb`, `.rpm`, or `.zip`
+            **You do not need Node.js, npm, or Python** — the download is self-contained.
 
-            Nothing else is required — Node.js is **not** needed to run the app.
+            ## Install on macOS
 
-            > These builds are unsigned. On macOS, right-click the app and choose
-            > **Open** the first time (or *System Settings → Privacy & Security →
-            > Open Anyway*). Windows will show a SmartScreen warning; choose
-            > **More info → Run anyway**.
+            Download **`Celldega-App-*-universal.dmg`** below. It runs natively on both
+            Apple Silicon and Intel Macs, so there is nothing to choose between.
+
+            1. Double-click the `.dmg`
+            2. Drag the **Celldega** icon onto the **Applications** folder
+            3. Open **Celldega** from Applications
+
+            ### First launch: "Apple could not verify..."
+
+            You will see this warning once. It appears because the app is not yet signed
+            with a paid Apple Developer certificate — **not** because anything is wrong
+            with the app. macOS shows it for every unsigned app.
+
+            **macOS 15 (Sequoia) and newer** — right-click → Open no longer works, Apple
+            removed that shortcut:
+
+            1. Click **Done** on the warning
+            2. Open  → **System Settings** → **Privacy & Security**
+            3. Scroll to **Security** — you will see *"celldega was blocked to protect your Mac."*
+            4. Click **Open Anyway**, authenticate, then click **Open**
+
+            **macOS 14 (Sonoma) and older** — right-click Celldega → **Open** → **Open**.
+
+            Terminal alternative (any version):
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Celldega.app
+            ```
+
+            ## Install on Windows
+
+            Run **`Celldega-Setup.exe`**. SmartScreen will warn that the publisher is
+            unrecognised — choose **More info** → **Run anyway**.
+
+            ## Linux
+
+            Not available in this release; the Linux build is still being fixed.
+
+            ---
+
+            Full instructions in the [README](https://github.com/broadinstitute/celldega-app#install).

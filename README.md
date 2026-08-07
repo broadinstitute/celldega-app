@@ -15,42 +15,88 @@ is no Python in v0.1.0.
 
 ## Install
 
-Download the build for your platform from the
-[**Releases page**](../../releases) and run it:
+Get the latest build from the [**Releases page**](../../releases).
 
-| Platform | File | Install |
-| --- | --- | --- |
-| macOS (Apple Silicon) | `*macos-arm64*.dmg` | Open the `.dmg`, drag to Applications |
-| macOS (Intel) | `*macos-x64*.dmg` | Open the `.dmg`, drag to Applications |
-| Windows | `Celldega-Setup.exe` | Run the installer |
-| Linux | `.deb` / `.rpm` / `.zip` | `sudo apt install ./*.deb`, or unzip and run |
+**You do not need Node.js, npm, or Python.** The download is fully
+self-contained — Node is only needed to build from source.
 
-**You do not need Node.js, npm, or Python to run the app.** Electron bundles its
-own runtime, so the download is fully self-contained. Node is only required if
-you want to build the app from source yourself.
+| Platform | File |
+| --- | --- |
+| macOS (Apple Silicon *and* Intel) | `Celldega-App-<version>-universal.dmg` |
+| Windows | `Celldega-Setup.exe` |
+| Linux | *not yet available — see [Scope](#scope)* |
 
-### First launch on macOS and Windows
+macOS ships a single **universal** DMG that runs natively on both Apple Silicon
+and Intel, so there is nothing to choose between.
 
-The app is **unsigned**, so the OS blocks it on first launch:
+### macOS
 
-> "Apple could not verify 'celldega' is free of malware that may harm your Mac…"
+1. Download `Celldega-App-<version>-universal.dmg`
+2. **Double-click** the `.dmg`
+3. **Drag the Celldega icon onto the Applications folder** in the window that opens
+4. Open **Celldega** from Applications
+5. You will see a security warning the first time — see below
 
-**macOS 15 (Sequoia) and later.** Right-click → Open **no longer works** — Apple
-removed that bypass for un-notarized apps. Use one of:
+### macOS: getting past the security warning
 
-- *System Settings → Privacy & Security*, scroll to **Security**, then click
-  **Open Anyway** next to the blocked-app message, and confirm. Only needed once.
-- Or clear the download quarantine flag directly:
+On first launch macOS shows:
 
-  ```sh
-  xattr -dr com.apple.quarantine /Applications/Celldega.app
-  ```
+> **"Apple could not verify 'celldega' is free of malware that may harm your Mac
+> or compromise your privacy."**
 
-**macOS 14 (Sonoma) and earlier.** Right-click the app → **Open** → **Open**.
+This is expected. It appears because the app is not yet signed with a paid Apple
+Developer certificate — **not** because anything is wrong with it. macOS shows
+this for every unsigned app. You only need to do this once; afterwards Celldega
+opens normally.
 
-**Windows.** SmartScreen → **More info** → **Run anyway**.
+**macOS 15 (Sequoia) and newer** — right-click → Open no longer works here,
+Apple removed that shortcut:
 
-Signing removes all of this; see [Code signing](#code-signing).
+1. Click **Done** to dismiss the warning
+2. Open  → **System Settings** → **Privacy & Security**
+3. Scroll down to the **Security** section. You will see
+   *"celldega was blocked to protect your Mac."*
+4. Click **Open Anyway**
+5. Authenticate with Touch ID or your password
+6. Click **Open** on the final confirmation
+
+**macOS 14 (Sonoma) and older:** right-click Celldega in Applications → **Open**
+→ **Open**.
+
+<details>
+<summary>Terminal alternative (any macOS version)</summary>
+
+If you are comfortable in a terminal, this clears the download flag directly and
+skips the prompt entirely:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Celldega.app
+```
+
+</details>
+
+### Windows
+
+1. Download and run `Celldega-Setup.exe`
+2. SmartScreen will warn that the publisher is unrecognised — click
+   **More info** → **Run anyway**
+3. The installer completes and launches Celldega
+
+### Why the warnings appear
+
+Both warnings mean the same thing: the app is not code-signed. Signing requires
+a paid Apple Developer account ($99/year) and an equivalent certificate on
+Windows. Once signed and notarized these prompts disappear for everyone — see
+[Code signing](#code-signing).
+
+### Updating to a new version
+
+There is no auto-update yet (it requires signing). To update: quit Celldega,
+drag `/Applications/Celldega.app` to the Trash, then install the new `.dmg` as
+above. Your recent-datasets list is preserved.
+
+If the app keeps showing an old icon after updating, macOS has cached it — run
+`killall Dock Finder`.
 
 ### Trying it without any data
 
