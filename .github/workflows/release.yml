@@ -23,12 +23,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS is the priority platform -- these two must pass.
-          - os: macos-latest      # Apple Silicon
-            name: macos-arm64
-            required: true
-          - os: macos-13          # Intel
-            name: macos-x64
+          # macOS is the priority platform and must pass.
+          #
+          # One universal build rather than separate arm64 + Intel jobs: the
+          # macos-13 (Intel) runner is end-of-life and sat unassigned for
+          # ~25 minutes on the v0.1.0 run, blocking the whole release. An
+          # arm64 runner can stitch both slices, so this removes the
+          # dependency on a deprecated image and ships a single DMG that runs
+          # natively on every Mac.
+          - os: macos-latest
+            name: macos-universal
+            arch: universal
             required: true
           # Best-effort: a failure here must not block a macOS release, since
           # the release job depends on this one completing.
@@ -47,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # maker-rpm needs the rpm binary and maker-deb needs fakeroot; neither is
@@ -58,7 +63,8 @@ jobs:
 
       - run: npm ci
 
-      - run: npm run make
+      - name: Build distributables
+        run: npm run make ${{ matrix.arch && format('-- --arch={0}', matrix.arch) || '' }}
 
       - uses: actions/upload-artifact@v4
         with:

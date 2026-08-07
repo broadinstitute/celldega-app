@@ -23,13 +23,18 @@ module.exports = {
       // Primary macOS download: drag-to-Applications installer
       name: '@electron-forge/maker-dmg',
       platforms: ['darwin'],
-      config: {
-        // Must include the arch: the Apple Silicon and Intel runners both
-        // attach their .dmg to the same GitHub Release, and identical
-        // filenames would collide there.
-        name: `Celldega-App-${version}-${process.arch}`,
+      // Config as a function of the *target* arch. Using process.arch here
+      // would be wrong: a universal build produced on an arm64 machine would
+      // be labelled "arm64" despite also running on Intel.
+      config: (arch) => ({
+        name: `Celldega-App-${version}-${arch}`,
+        // Volume name, shown when the DMG is mounted. Must be set explicitly
+        // and kept short: it defaults to `name`, and macOS alias records cap
+        // volume names at 27 chars -- "Celldega-App-0.1.0-universal" is 28,
+        // which fails the build outright.
+        title: 'Celldega',
         format: 'ULFO',
-      },
+      }),
     },
     {
       name: '@electron-forge/maker-zip',
