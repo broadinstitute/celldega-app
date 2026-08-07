@@ -1,0 +1,26 @@
+{
+  "name": "celldega-app",
+  "productName": "Celldega",
+  "version": "0.1.0",
+  "description": "Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js",
+  "main": "src/main.js",
+  "license": "MIT",
+  "author": "Broad Institute",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "dev": "electron-forge start --inspect-electron"
+  },
+  "dependencies": {
+    "celldega": "0.24.1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.6.0",
+    "@electron-forge/maker-deb": "^7.6.0",
+    "@electron-forge/maker-rpm": "^7.6.0",
+    "@electron-forge/maker-squirrel": "^7.6.0",
+    "@electron-forge/maker-zip": "^7.6.0",
+    "electron": "^33.3.0"
+  }
+}
