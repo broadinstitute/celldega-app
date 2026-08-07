@@ -162,7 +162,7 @@ const send_error = (res, code, message) => {
   res.end(message)
 }
 
-const start_server = async ({ renderer_root, celldega_entry }) =>
+const start_server = async ({ renderer_root, celldega_entry, aws4fetch_entry }) =>
   new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -180,6 +180,12 @@ const start_server = async ({ renderer_root, celldega_entry }) =>
       // inside asar, which is why we read rather than copy it at build time).
       if (pathname === '/vendor/celldega.js') {
         return serve_file(req, res, celldega_entry)
+      }
+
+      // Used to sign the renderer's own pre-flight requests for private S3
+      // datasets. Celldega bundles its own copy for its internal fetches.
+      if (pathname === '/vendor/aws4fetch.js') {
+        return serve_file(req, res, aws4fetch_entry)
       }
 
       const data_match = /^\/data\/([a-f0-9]+)\/(.*)$/.exec(pathname)

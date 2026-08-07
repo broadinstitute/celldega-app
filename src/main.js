@@ -75,6 +75,7 @@ const resolve_celldega_entry = () => {
   try {
     return require.resolve('celldega')
   } catch {
+    /* falls through to the node_modules path below */
     return path.join(
       __dirname,
       '..',
@@ -287,6 +288,15 @@ app.whenReady().then(async () => {
   server = await start_server({
     renderer_root: RENDERER_ROOT,
     celldega_entry: resolve_celldega_entry(),
+    // ESM build, so the renderer can import it directly
+    aws4fetch_entry: path.join(
+      __dirname,
+      '..',
+      'node_modules',
+      'aws4fetch',
+      'dist',
+      'aws4fetch.esm.mjs'
+    ),
   })
 
   register_ipc()

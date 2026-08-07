@@ -3,6 +3,7 @@
 // logic lives here by design -- Celldega.js owns all of it.
 
 import celldega from '/vendor/celldega.js'
+import { AwsClient } from '/vendor/aws4fetch.js'
 
 const api = window.celldega_app
 
@@ -32,11 +33,35 @@ const state = {
 // This is what the published gallery embed passes.
 const make_standalone_model = () => ({})
 
-const fetch_manifest = async (base_url) => {
-  const response = await fetch(`${base_url}/landscape_parameters.json`, { cache: 'no-store' })
+// Returns the fetch to use for this dataset's own pre-flight requests.
+//
+// Celldega signs its internal requests itself when handed `creds`, but the
+// manifest and .dzi are fetched *here*, before Celldega is ever called. Using a
+// plain fetch for those means a private bucket rejects them with 403 and the
+// dataset never loads, however valid the credentials are.
+//
+// Mirrors Celldega's own AwsClient setup (see landscape_ist.js) so both halves
+// sign identically -- including the hardcoded us-east-1, which is what Celldega
+// uses regardless of where the bucket actually lives.
+const make_fetcher = (creds) => {
+  if (!creds || !creds.accessKeyId) return (url, init) => fetch(url, init)
+
+  const aws = new AwsClient({
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    sessionToken: creds.sessionToken,
+    region: 'us-east-1',
+    service: 's3',
+  })
+  return (url, init) => aws.fetch(url, init)
+}
+
+const fetch_manifest = async (base_url, do_fetch = fetch) => {
+  const response = await do_fetch(`${base_url}/landscape_parameters.json`, { cache: 'no-store' })
   if (!response.ok) {
     const err = new Error(`Server returned HTTP ${response.status} for landscape_parameters.json`)
     err.is_http_error = true
+    err.status = response.status
     throw err
   }
   return response.json()
@@ -48,23 +73,27 @@ const fetch_manifest = async (base_url) => {
 // that is exactly what the proxy fixes. An HTTP error status means we reached
 // the server and it said no, so retrying through the proxy would just repeat
 // the same answer; we report it straight away instead.
-const resolve_base_url = async (source) => {
+const resolve_base_url = async (source, do_fetch) => {
   try {
-    const manifest = await fetch_manifest(source.base_url)
+    const manifest = await fetch_manifest(source.base_url, do_fetch)
     return { base_url: source.base_url, manifest, via_proxy: false }
   } catch (err) {
     if (err.is_http_error || !source.proxy_url) throw err
 
-    const manifest = await fetch_manifest(source.proxy_url)
+    // The proxy relays requests unsigned, so it cannot reach a private bucket.
+    // Falling back to it would only turn a network error into a confusing 403.
+    if (source.creds && source.creds.accessKeyId) throw err
+
+    const manifest = await fetch_manifest(source.proxy_url, do_fetch)
     return { base_url: source.proxy_url, manifest, via_proxy: true }
   }
 }
 
 // Image dimensions come from the Deep Zoom sidecar, e.g.
 // pyramid_images/dapi.dzi -> <Size Width="24134" Height="8571"/>
-const fetch_image_dimensions = async (base_url, image_name) => {
+const fetch_image_dimensions = async (base_url, image_name, do_fetch = fetch) => {
   try {
-    const response = await fetch(`${base_url}/pyramid_images/${image_name}.dzi`, {
+    const response = await do_fetch(`${base_url}/pyramid_images/${image_name}.dzi`, {
       cache: 'no-store',
     })
     if (!response.ok) return null
@@ -159,15 +188,35 @@ const load_dataset = async (source) => {
   teardown_viewer()
   show_status('Loading dataset…', source.detail)
 
+  const do_fetch = make_fetcher(source.creds)
+
   let resolved
   try {
-    resolved = await resolve_base_url(source)
+    resolved = await resolve_base_url(source, do_fetch)
   } catch (err) {
-    show_status(
-      'Could not reach that dataset',
-      `${err.message}. Check the URL points at the folder containing landscape_parameters.json.`,
-      { spinner: false, dismissable: true }
-    )
+    // 401/403 is an access problem, not a wrong path -- saying "check the URL"
+    // sends people looking in the wrong place.
+    const denied = err.status === 403 || err.status === 401
+    const had_creds = Boolean(source.creds && source.creds.accessKeyId)
+
+    let hint
+    if (denied && had_creds) {
+      hint =
+        'Access denied. The credentials were rejected, or they lack permission for this bucket. ' +
+        'Check the key and secret, include a session token if they are temporary, and note that ' +
+        'buckets outside us-east-1 are not supported yet.'
+    } else if (denied) {
+      hint =
+        'Access denied. This dataset looks private -- reopen it with File > Open Remote URL and ' +
+        'fill in the S3 credentials section.'
+    } else {
+      hint = 'Check the URL points at the folder containing landscape_parameters.json.'
+    }
+
+    show_status('Could not reach that dataset', `${err.message}. ${hint}`, {
+      spinner: false,
+      dismissable: true,
+    })
     return
   }
 
@@ -189,7 +238,7 @@ const load_dataset = async (source) => {
 
   // Fetched only for the dimensions pill -- the camera is auto-fit by celldega
   const image_name = manifest.image_info?.[0]?.name
-  const dims = image_name ? await fetch_image_dimensions(base_url, image_name) : null
+  const dims = image_name ? await fetch_image_dimensions(base_url, image_name, do_fetch) : null
   const { ini_x, ini_y, ini_z, ini_zoom } = AUTO_FIT_VIEW
 
   const pills = [technology]
