@@ -45,9 +45,15 @@ contextBridge.exposeInMainWorld('celldega_app', {
     set_window: (window_id, patch) =>
       ipcRenderer.invoke('obs_app_set_window', { window_id, patch }),
 
-    get_channel: (name) => ipcRenderer.invoke('obs_app_get_channel', name),
-    set_channel: (name, value, window_id) =>
-      ipcRenderer.invoke('obs_app_set_channel', { name, value, window_id }),
+    // Channels are scoped: windows sharing a scope_id are linked, windows over
+    // different data are not. scope_id is opaque -- one dataset today, a cohort
+    // spanning several datasets later.
+    get_channel: (scope_id, name) => ipcRenderer.invoke('obs_app_get_channel', { scope_id, name }),
+    set_channel: (scope_id, name, value, window_id) =>
+      ipcRenderer.invoke('obs_app_set_channel', { scope_id, name, value, window_id }),
+
+    linked_windows: (scope_id, window_id) =>
+      ipcRenderer.invoke('obs_app_linked_windows', { scope_id, window_id }),
 
     snapshot: () => ipcRenderer.invoke('obs_app_snapshot'),
 

@@ -22,7 +22,24 @@ const state = {
   source: null,
   cleanup: null,
   resize_timer: null,
+  // Which scope this window's shared state belongs to. Windows sharing a scope
+  // are linked; windows over different data are not. Today this is the dataset,
+  // later it may be a cohort spanning several datasets -- so it is treated as an
+  // opaque key and never parsed.
+  scope_id: null,
 }
+
+// A dataset's stable identity.
+//
+// Must come from where the data actually lives, never from `detail` -- for demo
+// entries `detail` is a human-readable description, and several demos share the
+// same one ("Xenium Prime · FFPE" covers both Human Skin and Ovarian Cancer),
+// which would put unrelated datasets in one scope and wrongly link them.
+//
+// dataset_dir for local (canonical, and stable across the per-launch mount id),
+// base_url for remote (the original URL, not the proxy fallback, so the same
+// dataset resolves to one scope either way).
+const scope_id_for = (source) => source.dataset_dir || source.base_url || null
 
 // --------------------------------------------------------------- helpers
 
@@ -150,7 +167,13 @@ const show_start = () => {
   $('viewer').hidden = true
   $('start_screen').hidden = false
   state.source = null
-  api.obs_app.set_window(window_id, { title: 'Celldega', view_type: null, label: null })
+  state.scope_id = null
+  api.obs_app.set_window(window_id, {
+    title: 'Celldega',
+    view_type: null,
+    label: null,
+    scope_id: null,
+  })
 }
 
 const show_viewer = (source) => {
@@ -315,12 +338,15 @@ const load_dataset = async (source) => {
 
     // Publish what this window is showing. Per-window state, so opening a
     // different dataset in another window does not disturb this one.
+    state.scope_id = scope_id_for(source)
+
     api.obs_app.set_window(window_id, {
       title: `${source.label} — Celldega`,
       view_type: 'landscape',
       label: source.label,
       detail: source.detail,
       technology,
+      scope_id: state.scope_id,
     })
   } catch (err) {
     show_status('Failed to render dataset', String(err && err.message ? err.message : err), {
@@ -546,13 +572,15 @@ const wire_events = () => {
     if (action === 'close_dataset') show_start()
   })
 
-  // Shared channels are broadcast to every window. Nothing subscribes to them
-  // yet -- there is only one view type -- but this is the seam that will carry
-  // Landscape <-> Clustergram / Yearbook linking, and eventually a Jupyter
-  // bridge, without any window referencing another.
+  // Channel changes arrive from every window; react only to our own scope.
+  //
+  // This is the seam that will carry Landscape <-> Clustergram / Yearbook
+  // linking, and eventually a Jupyter bridge, without any window referencing
+  // another. Nothing subscribes yet -- there is only one view type.
   api.obs_app.on_change((change) => {
     if (change.type !== 'channel') return
     if (change.origin_window_id === window_id) return // ignore our own echo
+    if (!state.scope_id || change.scope_id !== state.scope_id) return // different data
   })
 }
 
