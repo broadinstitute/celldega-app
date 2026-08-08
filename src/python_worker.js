@@ -19,7 +19,20 @@ const WORKER_SCRIPT = path.join(__dirname, '..', 'python', 'worker.py')
 
 // Needed for cluster signatures and hierarchical clustering. h5py is not listed:
 // the app reads .h5ad itself with h5wasm, so Python only needs it via anndata.
-const REQUIRED_PACKAGES = ['numpy', 'scipy', 'pandas', 'anndata']
+//
+// celldega must be here even though it pulls the rest in: the whole computation
+// is celldega.clust.Matrix, so a Python without it passes a numpy/scipy check
+// and then fails at the moment the user clicks. Better to report it as missing
+// up front.
+const REQUIRED_PACKAGES = ['numpy', 'scipy', 'pandas', 'anndata', 'celldega']
+
+// The Python and JS packages share a version stream -- PyPI and npm are both on
+// 0.24.1 -- but the version is deliberately NOT enforced. An editable install
+// reports whatever version was recorded when it was installed, so a checkout
+// currently at 0.24.1 can still report 0.16.0a1 through importlib.metadata.
+// Rejecting on that would break the setup most likely to be developing against
+// celldega.py. The version is surfaced to the user instead, so a genuinely old
+// install is visible without being fatal.
 
 // Ordered by how likely they are to be the *intended* interpreter, not merely a
 // working one: an explicit override first, then uv's notion of the current
@@ -68,13 +81,21 @@ const run_capture = (command, args, { timeout_ms = 15000, input = null } = {}) =
   })
 
 // Ask an interpreter what it is and what it can import, in one shot.
+// importlib.metadata is used for celldega's version rather than __version__:
+// the installed module can carry a stale __version__ string (an editable
+// checkout reports 0.16.0a1 while its pyproject says 0.24.1), and the
+// distribution metadata is what actually reflects what is installed.
 const PROBE = `
 import json, sys
 found = {}
 for name in ${JSON.stringify(REQUIRED_PACKAGES)}:
     try:
         m = __import__(name)
-        found[name] = getattr(m, "__version__", "unknown")
+        try:
+            from importlib.metadata import version as _v
+            found[name] = _v(name)
+        except Exception:
+            found[name] = getattr(m, "__version__", "unknown")
     except Exception:
         found[name] = None
 print(json.dumps({"version": sys.version.split()[0], "executable": sys.executable, "packages": found}))

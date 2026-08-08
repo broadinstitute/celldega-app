@@ -23,7 +23,9 @@ only the path returned, rather than serialised through JSON. Nothing here does
 that yet; `ping` and `describe_anndata` are both small.
 """
 
+import contextlib
 import json
+import os
 import sys
 import traceback
 
@@ -105,10 +107,96 @@ def method_describe_anndata(params):
             adata.file.close()
 
 
+def method_cluster_signature(params):
+    """Aggregate expression per category, cluster it, and write DegaFiles.
+
+    The whole point of routing this through Python: celldega.py already does it.
+    Matrix.write_dega_files produces a `cgm/<name>/` directory of parquet files
+    that Celldega.js reads with matrix_from_dega_files -- its docstring says
+    they are "the parquet files needed to load the Clustergram in JavaScript
+    without a Python backend".
+
+    So the result never crosses the IPC boundary as numbers. Python writes
+    DegaFiles, the app serves that directory, and the renderer loads it exactly
+    as it would any other dataset. No new format, no large JSON payload, and the
+    output is a shareable artifact rather than a private blob -- it can be
+    dropped into a DegaFiles directory and it will simply be there next time,
+    with no Python needed to view it.
+    """
+    import celldega as dega
+    import anndata
+
+    path = params.get("path")
+    category = params.get("category")
+    out_dir = params.get("out_dir")
+    if not path or not category or not out_dir:
+        raise ValueError("path, category and out_dir are required")
+
+    name = params.get("name") or category
+    normalize = params.get("normalize", "zscore")
+    axis = params.get("axis", "row")
+
+    adata = anndata.read_h5ad(path)
+
+    mat = dega.clust.Matrix(adata)
+    # Collapse cells to one profile per category value -- 122k cells becomes a
+    # handful of rows, which is what makes the rest cheap.
+    mat.downsample_to(category=category)
+    if normalize:
+        mat.norm(axis=axis, by=normalize)
+    mat.clust()
+    mat.write_dega_files(out_dir, name=name)
+
+    df = mat.to_df()
+    return {
+        "name": name,
+        "cgm_path": os.path.join(out_dir, "cgm", name),
+        "n_rows": int(df.shape[0]),
+        "n_cols": int(df.shape[1]),
+        "row_names": [str(x) for x in df.index[:50]],
+        "col_names": [str(x) for x in df.columns[:50]],
+        "category": category,
+        "normalize": normalize,
+    }
+
+
+def method_signature_dataframe(params):
+    """Write the signature matrix as CSV or parquet, for use outside the app.
+
+    Same computation as cluster_signature, but the plain table rather than the
+    Clustergram bundle -- so a result can leave the app and be used in a
+    notebook or a paper figure.
+    """
+    import celldega as dega
+    import anndata
+
+    path = params.get("path")
+    category = params.get("category")
+    out_file = params.get("out_file")
+    if not path or not category or not out_file:
+        raise ValueError("path, category and out_file are required")
+
+    adata = anndata.read_h5ad(path)
+    mat = dega.clust.Matrix(adata)
+    mat.downsample_to(category=category)
+    if params.get("normalize", "zscore"):
+        mat.norm(axis=params.get("axis", "row"), by=params.get("normalize", "zscore"))
+
+    df = mat.to_df()
+    if out_file.endswith(".parquet"):
+        df.to_parquet(out_file)
+    else:
+        df.to_csv(out_file)
+
+    return {"out_file": out_file, "n_rows": int(df.shape[0]), "n_cols": int(df.shape[1])}
+
+
 METHODS = {
     "ping": method_ping,
     "capabilities": method_capabilities,
     "describe_anndata": method_describe_anndata,
+    "cluster_signature": method_cluster_signature,
+    "signature_dataframe": method_signature_dataframe,
 }
 
 
@@ -130,7 +218,13 @@ def main():
             handler = METHODS.get(method)
             if handler is None:
                 raise ValueError(f"unknown method: {method}")
-            result = handler(request.get("params") or {})
+            # stdout is the protocol channel, so nothing else may write to it.
+            # Libraries print freely -- celldega's write_dega_files announces
+            # where it saved -- and a stray line that happened to parse as JSON
+            # would be read as a response. Redirect anything a handler prints to
+            # stderr, where it is treated as diagnostics.
+            with contextlib.redirect_stdout(sys.stderr):
+                result = handler(request.get("params") or {})
             response = {"id": request_id, "ok": True, "result": result}
         except Exception as err:  # noqa: BLE001 - report every failure as protocol
             log(traceback.format_exc())
