@@ -400,10 +400,17 @@ const register_ipc = () => {
     return next
   })
 
-  ipcMain.handle('obs_app_get_channel', async (_event, name) => obs_app.get_channel(name))
+  ipcMain.handle('obs_app_get_channel', async (_event, { scope_id, name }) =>
+    obs_app.get_channel(scope_id, name)
+  )
 
-  ipcMain.handle('obs_app_set_channel', async (_event, { name, value, window_id }) =>
-    obs_app.set_channel(name, value, window_id)
+  ipcMain.handle('obs_app_set_channel', async (_event, { scope_id, name, value, window_id }) =>
+    obs_app.set_channel(scope_id, name, value, window_id)
+  )
+
+  // Which other windows share this window's scope -- i.e. what it is linked to
+  ipcMain.handle('obs_app_linked_windows', async (_event, { scope_id, window_id }) =>
+    obs_app.windows_in_scope(scope_id).filter((id) => id !== window_id)
   )
 
   ipcMain.handle('obs_app_snapshot', async () => obs_app.snapshot())
