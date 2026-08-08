@@ -53,6 +53,13 @@ const DEMO_DATASETS = [
     base_url:
       'https://raw.githubusercontent.com/broadinstitute/celldega_Xenium_V1_Human_Colon_Cancer_P2_CRC_Add_on_FFPE_outs/main/Xenium_V1_Human_Colon_Cancer_P2_CRC_Add_on_FFPE_outs',
   },
+  {
+    label: 'Cervical Cancer',
+    detail: 'Xenium WTA Preview · FFPE · 4 image channels',
+    // DegaFiles live at the repository root rather than in a subdirectory
+    base_url:
+      'https://raw.githubusercontent.com/cornhundred/Celldega_WTA_Preview_FFPE_Cervical_Cancer_outs_gh/main',
+  },
 ]
 
 let server = null
