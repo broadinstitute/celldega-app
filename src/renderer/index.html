@@ -43,6 +43,10 @@
       <div class="action-row">
         <button class="btn btn-primary" id="btn_open_local">Open Local Folder…</button>
         <button class="btn" id="btn_open_remote">Open Remote URL…</button>
+        <button class="btn btn-ghost" id="btn_new_window"
+                title="Open another window — independent, with its own dataset">
+          Open New Window
+        </button>
       </div>
 
       <div id="start_error" class="banner banner-error" hidden></div>
@@ -79,7 +83,13 @@
           <span class="toolbar-detail" id="viewer_detail"></span>
         </div>
       </div>
-      <div class="pill-row" id="viewer_pills"></div>
+      <div class="toolbar-right">
+        <div class="pill-row" id="viewer_pills"></div>
+        <button class="btn btn-ghost" id="btn_new_window_view"
+                title="Open another window — independent, with its own dataset">
+          Open New Window
+        </button>
+      </div>
     </div>
 
     <div class="canvas-wrap">

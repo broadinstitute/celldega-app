@@ -14,6 +14,10 @@ const $ = (id) => document.getElementById(id)
 // fail with an explanation instead of a blank canvas.
 const ORBIT_TECHNOLOGIES = ['point-cloud', 'neighborhood-cloud', 'cell-cloud']
 
+// Which window this renderer is. Supplied by main as a query param, and used to
+// scope this window's obs_app state and to ignore the echo of its own changes.
+const window_id = new URLSearchParams(location.search).get('window_id') || 'window_1'
+
 const state = {
   source: null,
   cleanup: null,
@@ -146,6 +150,7 @@ const show_start = () => {
   $('viewer').hidden = true
   $('start_screen').hidden = false
   state.source = null
+  api.obs_app.set_window(window_id, { title: 'Celldega', view_type: null, label: null })
 }
 
 const show_viewer = (source) => {
@@ -307,6 +312,16 @@ const load_dataset = async (source) => {
     }
     hide_status()
     record_recent(source)
+
+    // Publish what this window is showing. Per-window state, so opening a
+    // different dataset in another window does not disturb this one.
+    api.obs_app.set_window(window_id, {
+      title: `${source.label} — Celldega`,
+      view_type: 'landscape',
+      label: source.label,
+      detail: source.detail,
+      technology,
+    })
   } catch (err) {
     show_status('Failed to render dataset', String(err && err.message ? err.message : err), {
       spinner: false,
@@ -520,10 +535,24 @@ const wire_events = () => {
 
   window.addEventListener('resize', handle_resize)
 
+  // Available from both the start screen and inside a view -- opening a second
+  // window is most often wanted while already looking at something
+  $('btn_new_window').addEventListener('click', () => api.new_window())
+  $('btn_new_window_view').addEventListener('click', () => api.new_window())
+
   api.on_menu_action((action) => {
     if (action === 'open_local') open_local()
     if (action === 'open_remote') open_remote_modal()
     if (action === 'close_dataset') show_start()
+  })
+
+  // Shared channels are broadcast to every window. Nothing subscribes to them
+  // yet -- there is only one view type -- but this is the seam that will carry
+  // Landscape <-> Clustergram / Yearbook linking, and eventually a Jupyter
+  // bridge, without any window referencing another.
+  api.obs_app.on_change((change) => {
+    if (change.type !== 'channel') return
+    if (change.origin_window_id === window_id) return // ignore our own echo
   })
 }
 
