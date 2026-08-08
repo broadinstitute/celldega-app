@@ -15,7 +15,8 @@ is no Python in v0.1.0.
 
 ## Install
 
-Get the latest build from the [**Releases page**](../../releases).
+Get the latest build from the [**Releases page**](../../releases). What changed
+in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 **You do not need Node.js, npm, or Python.** The download is fully
 self-contained — Node is only needed to build from source.
