@@ -9,6 +9,7 @@ const path = require('node:path')
 const fsp = require('node:fs/promises')
 
 const { start_server } = require('./local_server')
+const obs_app = require('./obs_app')
 const local_source = require('./data_sources/local_source')
 const http_source = require('./data_sources/http_source')
 const authenticated_source = require('./data_sources/authenticated_source')
@@ -55,7 +56,21 @@ const DEMO_DATASETS = [
 ]
 
 let server = null
-let main_window = null
+
+// window_id -> BrowserWindow. Each window is an independent viewer with its own
+// dataset; obs_app keys its per-window state by the same id.
+const windows = new Map()
+let window_counter = 0
+
+// Menu actions and dialogs target whichever window has focus, falling back to
+// the most recently created one.
+const focused_window = () =>
+  BrowserWindow.getFocusedWindow() || [...windows.values()].pop() || null
+
+const window_id_for = (win) => {
+  for (const [id, w] of windows) if (w === win) return id
+  return null
+}
 
 // Credentials for private datasets, cached for the lifetime of this process so
 // a dataset can be reopened from Recents without retyping them.
@@ -122,11 +137,19 @@ const write_recents = async (entries) => {
 // ---------------------------------------------------------------- window
 
 const create_window = () => {
-  main_window = new BrowserWindow({
+  window_counter += 1
+  const window_id = `window_${window_counter}`
+
+  // Cascade new windows so they don't land exactly on top of each other
+  const previous = focused_window()
+  const offset = previous && windows.size > 0 ? previous.getPosition() : null
+
+  const main_window = new BrowserWindow({
     width: 1440,
     height: 940,
     minWidth: 900,
     minHeight: 600,
+    ...(offset ? { x: offset[0] + 32, y: offset[1] + 32 } : {}),
     backgroundColor: '#ffffff',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false,
@@ -138,30 +161,43 @@ const create_window = () => {
     },
   })
 
+  windows.set(window_id, main_window)
+  obs_app.set_window(window_id, { title: 'Celldega' })
+
+  main_window.on('closed', () => {
+    windows.delete(window_id)
+    obs_app.remove_window(window_id)
+  })
+
   main_window.once('ready-to-show', () => main_window.show())
 
   // Surface renderer errors on the main process stdout. Without this a module
   // that throws at import time fails silently and the UI just looks inert.
   main_window.webContents.on('console-message', (...args) => {
     const detail = args[1] && typeof args[1] === 'object' ? args[1] : null
-    if (detail) console.log(`[renderer] ${detail.message} (${detail.sourceId}:${detail.lineNumber})`)
-    else console.log(`[renderer] ${args[2]} (${args[4]}:${args[3]})`)
+    const msg = detail ? `${detail.message} (${detail.sourceId}:${detail.lineNumber})` : `${args[2]} (${args[4]}:${args[3]})`
+    console.log(`[${window_id}] ${msg}`)
   })
   main_window.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.log(`[did-fail-load] ${code} ${desc} ${url}`)
   })
 
-  main_window.loadURL(server.origin)
+  // The renderer needs to know which window it is, so it can scope its own
+  // obs_app state and ignore the echo of its own channel updates.
+  main_window.loadURL(`${server.origin}/?window_id=${window_id}`)
 
   // External links open in the system browser, never in the app window
   main_window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  return main_window
 }
 
 const send_menu_action = (action) => {
-  if (main_window) main_window.webContents.send('menu_action', action)
+  const win = focused_window()
+  if (win) win.webContents.send('menu_action', action)
 }
 
 const build_menu = () => {
@@ -172,6 +208,12 @@ const build_menu = () => {
     {
       label: 'File',
       submenu: [
+        {
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => create_window(),
+        },
+        { type: 'separator' },
         {
           label: 'Open Local Dataset…',
           accelerator: 'CmdOrCtrl+O',
@@ -193,8 +235,9 @@ const build_menu = () => {
           click: () => {
             const count = session_creds.size
             session_creds.clear()
-            if (main_window) {
-              dialog.showMessageBox(main_window, {
+            const win = focused_window()
+            if (win) {
+              dialog.showMessageBox(win, {
                 type: 'info',
                 message:
                   count === 0
@@ -253,7 +296,7 @@ const build_menu = () => {
 
 const register_ipc = () => {
   ipcMain.handle('open_local_dataset', async () => {
-    const result = await dialog.showOpenDialog(main_window, {
+    const result = await dialog.showOpenDialog(focused_window(), {
       title: 'Open DegaFiles / Landscape dataset',
       properties: ['openDirectory'],
       buttonLabel: 'Open Dataset',
@@ -334,6 +377,43 @@ const register_ipc = () => {
   })
 
   ipcMain.handle('get_app_version', async () => app.getVersion())
+
+  // ---- obs_app bridge -------------------------------------------------
+  //
+  // Renderers never hold the authoritative state; they read and write through
+  // here, and receive changes via the broadcast below.
+
+  ipcMain.handle('obs_app_get_window', async (_event, window_id) => obs_app.get_window(window_id))
+
+  ipcMain.handle('obs_app_set_window', async (_event, { window_id, patch }) => {
+    const next = obs_app.set_window(window_id, patch)
+    // Keep the OS window title in step with whatever the window is showing
+    const win = windows.get(window_id)
+    if (win && next && next.title) win.setTitle(next.title)
+    return next
+  })
+
+  ipcMain.handle('obs_app_get_channel', async (_event, name) => obs_app.get_channel(name))
+
+  ipcMain.handle('obs_app_set_channel', async (_event, { name, value, window_id }) =>
+    obs_app.set_channel(name, value, window_id)
+  )
+
+  ipcMain.handle('obs_app_snapshot', async () => obs_app.snapshot())
+
+  ipcMain.handle('new_window', async () => {
+    create_window()
+    return true
+  })
+
+  // Fan every change out to all live windows. Each renderer decides what it
+  // cares about -- this is what makes cross-window linking possible later
+  // without any window knowing another exists.
+  obs_app.subscribe((event) => {
+    for (const win of windows.values()) {
+      if (!win.isDestroyed()) win.webContents.send('obs_app_change', event)
+    }
+  })
 
   // Reopening a recent local dataset needs a fresh mount id
   ipcMain.handle('reopen_local_path', async (_event, dir_path) =>

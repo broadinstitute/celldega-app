@@ -31,8 +31,30 @@ contextBridge.exposeInMainWorld('celldega_app', {
   open_external: (url) => ipcRenderer.invoke('open_external', url),
   get_app_version: () => ipcRenderer.invoke('get_app_version'),
 
+  new_window: () => ipcRenderer.invoke('new_window'),
+
   // Menu-driven actions arrive here
   on_menu_action: (handler) => {
     ipcRenderer.on('menu_action', (_event, action) => handler(action))
+  },
+
+  // obs_app -- application state owned by the main process.
+  // Per-window state is isolated; channels are shared across all windows.
+  obs_app: {
+    get_window: (window_id) => ipcRenderer.invoke('obs_app_get_window', window_id),
+    set_window: (window_id, patch) =>
+      ipcRenderer.invoke('obs_app_set_window', { window_id, patch }),
+
+    get_channel: (name) => ipcRenderer.invoke('obs_app_get_channel', name),
+    set_channel: (name, value, window_id) =>
+      ipcRenderer.invoke('obs_app_set_channel', { name, value, window_id }),
+
+    snapshot: () => ipcRenderer.invoke('obs_app_snapshot'),
+
+    // Fires for every change in any window. Handlers get {type, window_id,
+    // channel, value, origin_window_id} and filter for what they care about.
+    on_change: (handler) => {
+      ipcRenderer.on('obs_app_change', (_event, change) => handler(change))
+    },
   },
 })

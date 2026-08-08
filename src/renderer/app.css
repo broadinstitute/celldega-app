@@ -286,6 +286,8 @@ body.is-mac .toolbar { padding-left: 84px; }
 .toolbar button, .toolbar select, .toolbar .pill { -webkit-app-region: no-drag; }
 
 .toolbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.toolbar-right { display: flex; align-items: center; gap: 12px; flex: none; }
+.toolbar-right .btn { padding: 5px 12px; font-size: 0.85rem; white-space: nowrap; }
 .toolbar-title { min-width: 0; }
 .toolbar-title strong { font-weight: 620; font-size: 0.95rem; }
 .toolbar-detail {
