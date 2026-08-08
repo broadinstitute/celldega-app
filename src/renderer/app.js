@@ -196,7 +196,12 @@ const render_color_by_options = () => {
   const select = $('color_by')
   const ann = state.anndata
 
-  if (!ann || !ann.info || ann.info.columns.length === 0) {
+  // The Clustergram needs an annotation to group by, so it appears exactly when
+  // COLOR BY does -- both are gated on an AnnData being attached.
+  const has_columns = Boolean(ann && ann.info && ann.info.columns.length > 0)
+  $('btn_clustergram').hidden = !has_columns
+
+  if (!has_columns) {
     wrap.hidden = true
     return
   }
@@ -288,6 +293,173 @@ const apply_color_by = async (column) => {
   // rebuilding. That is acceptable here -- the camera is auto-fit anyway, and
   // it avoids needing an in-place update API in Celldega.js.
   await load_dataset(state.source)
+}
+
+// ------------------------------------------------------- clustergram
+
+// Rendering a Clustergram needs no Python at all -- matrix_from_dega_files
+// reads the same cgm/ parquet files whether Python just produced them or they
+// shipped inside a DegaFiles directory. Python is only involved in *making*
+// them, which is why this window can be reopened later with no interpreter.
+const render_clustergram = async (spec) => {
+  const el = $('clustergram')
+  $('start_screen').hidden = true
+  $('viewer').hidden = true
+  $('cgm_view').hidden = false
+
+  $('cgm_label').textContent = spec.label || 'Clustergram'
+  $('cgm_detail').textContent = `grouped by ${spec.category}`
+
+  const pills = []
+  if (spec.stats) pills.push(`${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups`)
+  if (spec.zscore) pills.push(`z-score by ${spec.zscore}`)
+  if (spec.top_genes) pills.push(`top ${spec.top_genes} by variance`)
+  if (spec.dot_plot) pills.push('dot plot')
+  if (spec.cached) pills.push('cached')
+  $('cgm_pills').innerHTML = ''
+  for (const text of pills) {
+    const pill = document.createElement('span')
+    pill.className = 'pill'
+    pill.textContent = text
+    $('cgm_pills').appendChild(pill)
+  }
+
+  $('cgm_status_text').textContent = 'Loading Clustergram…'
+  $('cgm_status_sub').textContent = ''
+  $('cgm_status').hidden = false
+
+  try {
+    // width/height are the size of the MATRIX, not of everything drawn:
+    // celldega adds a control panel above it and a row-label gutter beside it.
+    // Passing the container's size therefore always overflows, clipping the
+    // right-hand columns and the bottom rows.
+    //
+    // Rather than hardcode an allowance that would break whenever that chrome
+    // changes, render once, measure how far the result overflows, and redraw
+    // with the difference subtracted. Self-correcting for any layout.
+    const draw = async (width, height) => {
+      el.innerHTML = ''
+      await celldega.matrix_from_dega_files(
+        el,
+        spec.base_url,
+        spec.name,
+        Math.max(200, Math.floor(width)),
+        Math.max(200, Math.floor(height))
+      )
+    }
+
+    const avail_w = el.clientWidth || 800
+    const avail_h = el.clientHeight || 600
+    await draw(avail_w, avail_h)
+
+    const overflow_w = el.scrollWidth - el.clientWidth
+    const overflow_h = el.scrollHeight - el.clientHeight
+    if (overflow_w > 2 || overflow_h > 2) {
+      await draw(avail_w - Math.max(0, overflow_w), avail_h - Math.max(0, overflow_h))
+    }
+
+    state.clustergram = spec
+    $('cgm_status').hidden = true
+  } catch (err) {
+    $('cgm_spinner').hidden = true
+    $('cgm_status_text').textContent = 'Could not render Clustergram'
+    $('cgm_status_sub').textContent = String(err && err.message ? err.message : err)
+  }
+}
+
+const open_clustergram_modal = async () => {
+  const ann = state.anndata
+  if (!ann) return
+
+  $('cgm_error').hidden = true
+
+  const select = $('cgm_category')
+  select.innerHTML = ''
+  for (const c of ann.info.columns) {
+    const opt = document.createElement('option')
+    opt.value = c.name
+    opt.textContent = `${c.name} (${c.n_categories})`
+    if (c.name === ann.column) opt.selected = true
+    select.appendChild(opt)
+  }
+
+  $('cgm_modal').hidden = false
+
+  // Report the Python situation up front rather than after a click that fails.
+  const status = $('cgm_python_status')
+  status.className = 'banner banner-info'
+  status.textContent = 'Checking for Python…'
+  status.hidden = false
+
+  const py = await api.python_status()
+  if (py.ok) {
+    status.className = 'banner banner-info'
+    status.textContent = `Using Python ${py.version} · celldega ${py.packages.celldega}`
+  } else {
+    status.className = 'banner banner-error'
+    status.textContent = py.error
+  }
+}
+
+const close_clustergram_modal = () => { $('cgm_modal').hidden = true }
+
+const generate_clustergram = async () => {
+  const ann = state.anndata
+  if (!ann) return
+
+  const error_el = $('cgm_error')
+  error_el.hidden = true
+
+  const top_raw = $('cgm_top_genes').value.trim()
+  const options = {
+    anndata_path: ann.path,
+    category: $('cgm_category').value,
+    zscore: $('cgm_zscore').checked ? 'row' : null,
+    top_genes: top_raw ? Number(top_raw) : null,
+    dot_plot: $('cgm_dot_plot').checked,
+    scope_id: state.scope_id,
+    label: state.source ? state.source.label : null,
+  }
+
+  const button = $('btn_cgm_generate')
+  button.disabled = true
+  button.textContent = 'Generating…'
+
+  const result = await api.generate_clustergram(options)
+
+  button.disabled = false
+  button.textContent = 'Generate'
+
+  if (!result.ok) {
+    error_el.textContent = result.error
+    error_el.hidden = false
+    return
+  }
+  // The Clustergram renders in its own window; this one keeps its Landscape.
+  close_clustergram_modal()
+}
+
+const save_signature_table = async () => {
+  const ann = state.anndata
+  if (!ann) return
+
+  const error_el = $('cgm_error')
+  error_el.hidden = true
+
+  const result = await api.save_signature_table({
+    anndata_path: ann.path,
+    category: $('cgm_category').value,
+    zscore: $('cgm_zscore').checked ? 'row' : null,
+  })
+  if (result.canceled) return
+  if (!result.ok) {
+    error_el.textContent = result.error
+    error_el.hidden = false
+    return
+  }
+  error_el.className = 'banner banner-info'
+  error_el.textContent = `Saved ${result.n_rows} × ${result.n_cols} to ${result.out_file}`
+  error_el.hidden = false
 }
 
 // ------------------------------------------------------------ status ui
@@ -894,6 +1066,14 @@ const wire_events = () => {
   $('btn_attach_anndata').addEventListener('click', attach_anndata)
   $('color_by').addEventListener('change', (event) => apply_color_by(event.target.value))
 
+  $('btn_clustergram').addEventListener('click', open_clustergram_modal)
+  $('btn_cgm_cancel').addEventListener('click', close_clustergram_modal)
+  $('btn_cgm_generate').addEventListener('click', generate_clustergram)
+  $('btn_cgm_save_table').addEventListener('click', save_signature_table)
+  $('cgm_modal').addEventListener('click', (event) => {
+    if (event.target === $('cgm_modal')) close_clustergram_modal()
+  })
+
   api.on_menu_action((action) => {
     if (action === 'open_local' || action === 'open_remote') open_remote_modal()
     if (action === 'close_dataset') show_start()
@@ -934,6 +1114,17 @@ const init = async () => {
   }
 
   wire_events()
+
+  // A window opened to show a Clustergram is told so through its own obs_app
+  // state, set by main before the page loaded. Reading it here is what lets a
+  // second window render something entirely different from the first.
+  const own_state = await api.obs_app.get_window(window_id)
+  if (own_state && own_state.view_type === 'clustergram' && own_state.clustergram) {
+    state.scope_id = own_state.scope_id || null
+    await render_clustergram({ ...own_state.clustergram, label: own_state.label })
+    return
+  }
+
   await Promise.all([render_demos(), render_recents()])
 
   try {

@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('celldega_app', {
 
   // AnnData: pick a local .h5ad and read one categorical obs column from it.
   // The file is read in main; only the compact result crosses IPC.
+  // Clustergram: computed by the Python worker, served as DegaFiles, and
+  // rendered in a new window. Python is only touched from here.
+  python_status: () => ipcRenderer.invoke('python_status'),
+  generate_clustergram: (options) => ipcRenderer.invoke('generate_clustergram', options),
+  save_signature_table: (options) => ipcRenderer.invoke('save_signature_table', options),
+
   pick_dataset_folder: () => ipcRenderer.invoke('pick_dataset_folder'),
   validate_local_path: (dir_path) => ipcRenderer.invoke('validate_local_path', dir_path),
   pick_anndata_file: () => ipcRenderer.invoke('pick_anndata_file'),

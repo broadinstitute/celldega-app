@@ -8,9 +8,12 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = requir
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
+const crypto = require('node:crypto')
+
 const { start_server } = require('./local_server')
 const obs_app = require('./obs_app')
 const anndata_reader = require('./anndata_reader')
+const python_worker = require('./python_worker')
 const local_source = require('./data_sources/local_source')
 const http_source = require('./data_sources/http_source')
 const authenticated_source = require('./data_sources/authenticated_source')
@@ -171,6 +174,7 @@ const create_window = () => {
 
   windows.set(window_id, main_window)
   obs_app.set_window(window_id, { title: 'Celldega' })
+  main_window.__celldega_window_id = window_id
 
   main_window.on('closed', () => {
     windows.delete(window_id)
@@ -452,6 +456,138 @@ const register_ipc = () => {
     anndata_reader.read_categorical(file_path, column)
   )
 
+  // ---- Clustergram ------------------------------------------------------
+
+  ipcMain.handle('python_status', async () => {
+    const managed = await python_worker.managed_env_status()
+    const found = await python_worker.discover()
+    return {
+      ok: found.ok,
+      executable: found.executable || null,
+      version: found.version || null,
+      packages: found.packages || null,
+      error: found.error || null,
+      reason: found.reason || null,
+      wanted_celldega: python_worker.CELLDEGA_VERSION,
+      managed: { exists: managed.exists, usable: Boolean(managed.usable), python: managed.python || null },
+      // True when we are running someone else's Python, so its celldega version
+      // is whatever they happen to have rather than the one we pin.
+      using_managed: Boolean(found.ok && managed.python && found.executable === managed.python),
+    }
+  })
+
+  ipcMain.handle('setup_python_env', async (event) => {
+    const send_progress = (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send('python_setup_progress', progress)
+    }
+    return python_worker.setup_managed_env(send_progress)
+  })
+
+  // Signatures are a deterministic function of (file, column, options), so the
+  // result is cached by a hash of exactly those. Re-clustering is an iterative
+  // step -- flipping z-score off and back on should be instant, not a recompute.
+  //
+  // The cache lives in userData rather than the dataset folder. Writing
+  // cgm/ into DegaFiles is for finished work destined for a gallery or a
+  // presentation, so it stays a deliberate action rather than a side effect of
+  // experimenting.
+  const clustergram_cache_root = () => path.join(app.getPath('userData'), 'clustergram_cache')
+
+  ipcMain.handle('generate_clustergram', async (_event, options) => {
+    const {
+      anndata_path,
+      category,
+      scope_id,
+      label,
+      zscore = 'row',
+      top_genes = null,
+      dot_plot = true,
+      normalization = 'log1p_cpm',
+    } = options || {}
+
+    if (!anndata_path || !category) {
+      return { ok: false, error: 'An AnnData file and a category are required' }
+    }
+
+    // Include the file's mtime and size, so regenerating the .h5ad invalidates
+    // the cache rather than silently serving a stale Clustergram.
+    let stamp = ''
+    try {
+      const stat = await fsp.stat(anndata_path)
+      stamp = `${stat.mtimeMs}:${stat.size}`
+    } catch {
+      return { ok: false, error: `Could not read ${anndata_path}` }
+    }
+
+    const key = crypto
+      .createHash('sha256')
+      .update(JSON.stringify([anndata_path, stamp, category, zscore, top_genes, dot_plot, normalization]))
+      .digest('hex')
+      .slice(0, 16)
+
+    const out_dir = path.join(clustergram_cache_root(), key)
+    const name = String(category).replace(/[^a-zA-Z0-9_-]/g, '_')
+    const meta_file = path.join(out_dir, 'cgm', name, 'meta.json')
+
+    let cached = false
+    try {
+      await fsp.access(meta_file)
+      cached = true
+    } catch {
+      /* not cached yet */
+    }
+
+    let stats = null
+    if (!cached) {
+      await fsp.mkdir(out_dir, { recursive: true })
+      const result = await python_worker.request(
+        'cluster_signature',
+        { path: anndata_path, category, out_dir, name, zscore, top_genes, dot_plot, normalization },
+        { timeout_ms: 900000 }
+      )
+      if (!result.ok) return { ok: false, error: result.error }
+      stats = result.result
+    }
+
+    // Serve the cache directory like any other dataset, so the renderer loads it
+    // with matrix_from_dega_files exactly as it would a Clustergram that shipped
+    // inside a DegaFiles folder.
+    const mount_id = server.add_local_mount(out_dir)
+    const base_url = `${server.origin}/data/${mount_id}`
+
+    const win = create_window()
+    const new_window_id = win.__celldega_window_id
+    obs_app.set_window(new_window_id, {
+      title: `${label || category} — Clustergram`,
+      view_type: 'clustergram',
+      scope_id: scope_id || null,
+      label: label || category,
+      clustergram: { base_url, name, category, zscore, top_genes, dot_plot, cached, stats },
+    })
+
+    return { ok: true, base_url, name, cached, window_id: new_window_id, stats }
+  })
+
+  ipcMain.handle('save_signature_table', async (_event, options) => {
+    const { anndata_path, category, normalization = 'log1p_cpm', zscore = 'row' } = options || {}
+    const result = await dialog.showSaveDialog(focused_window(), {
+      title: 'Save signatures',
+      defaultPath: `${category}_signatures.csv`,
+      filters: [
+        { name: 'CSV', extensions: ['csv'] },
+        { name: 'Parquet', extensions: ['parquet'] },
+      ],
+    })
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+
+    const written = await python_worker.request(
+      'signature_dataframe',
+      { path: anndata_path, category, out_file: result.filePath, normalization, zscore },
+      { timeout_ms: 900000 }
+    )
+    return written.ok ? { ok: true, ...written.result } : { ok: false, error: written.error }
+  })
+
   // ---- obs_app bridge -------------------------------------------------
   //
   // Renderers never hold the authoritative state; they read and write through
@@ -510,6 +646,10 @@ app.whenReady().then(async () => {
   // and form controls light regardless of the OS setting.
   nativeTheme.themeSource = 'light'
 
+  // A managed Python lives beside the app's other data, not in the bundle, so
+  // it survives upgrades and can be deleted without touching the install.
+  python_worker.set_managed_root(path.join(app.getPath('userData'), 'python_env'))
+
   server = await start_server({
     renderer_root: RENDERER_ROOT,
     celldega_entry: resolve_celldega_entry(),
@@ -539,4 +679,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   if (server) server.close()
+  python_worker.stop()
 })

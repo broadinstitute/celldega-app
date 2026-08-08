@@ -17,6 +17,27 @@ const fsp = require('node:fs/promises')
 
 const WORKER_SCRIPT = path.join(__dirname, '..', 'python', 'worker.py')
 
+// Pin the Python celldega to the same version as the pinned celldega.js. They
+// share a version stream (PyPI and npm are both 0.24.1), and a managed
+// environment is the only way to actually guarantee it -- a discovered Python
+// gives you whatever the user happens to have.
+const CELLDEGA_VERSION = (() => {
+  try {
+    return require('../package.json').dependencies.celldega
+  } catch {
+    return null
+  }
+})()
+
+// Where a managed environment lives. Set by main, which owns userData.
+let managed_root = null
+const set_managed_root = (dir) => { managed_root = dir }
+
+const managed_python = () =>
+  managed_root
+    ? path.join(managed_root, process.platform === 'win32' ? 'Scripts' : 'bin', process.platform === 'win32' ? 'python.exe' : 'python')
+    : null
+
 // Needed for cluster signatures and hierarchical clustering. h5py is not listed:
 // the app reads .h5ad itself with h5wasm, so Python only needs it via anndata.
 //
@@ -39,7 +60,11 @@ const REQUIRED_PACKAGES = ['numpy', 'scipy', 'pandas', 'anndata', 'celldega']
 // project's Python, then whatever is on PATH.
 const candidate_commands = () => {
   const candidates = []
+  // An explicit override wins, so a developer can point at their own checkout.
   if (process.env.CELLDEGA_PYTHON) candidates.push(process.env.CELLDEGA_PYTHON)
+  // Then the managed environment, whose celldega version we actually control.
+  const managed = managed_python()
+  if (managed) candidates.push(managed)
   candidates.push('python3', 'python')
   return candidates
 }
@@ -101,8 +126,12 @@ for name in ${JSON.stringify(REQUIRED_PACKAGES)}:
 print(json.dumps({"version": sys.version.split()[0], "executable": sys.executable, "packages": found}))
 `
 
-const probe_python = async (command) => {
-  const result = await run_capture(command, ['-c', PROBE])
+// The default timeout is generous because this imports the whole scientific
+// stack. A cold first import -- straight after an install, with no .pyc cached
+// -- takes well over 15s, which made a perfectly good environment report as a
+// failure.
+const probe_python = async (command, { timeout_ms = 120000 } = {}) => {
+  const result = await run_capture(command, ['-c', PROBE], { timeout_ms })
   if (!result.ok) return { ok: false, command, error: result.error || result.stderr.trim() }
   try {
     const info = JSON.parse(result.stdout.trim().split('\n').pop())
@@ -117,9 +146,14 @@ const probe_python = async (command) => {
 // exists but lacks packages -- "found Python 3.12 but anndata is missing" is
 // actionable, "no Python found" is not.
 const discover = async () => {
-  const uv = await run_capture('uv', ['python', 'find'], { timeout_ms: 8000 })
+  // Precedence matters and is easy to get backwards. `uv python find` is a
+  // fallback, NOT a preference: putting it first would let whatever Python
+  // happens to be around outrank both the explicit override and the managed
+  // environment whose celldega version we actually pin -- which defeats the
+  // point of having a managed environment at all.
   const commands = candidate_commands()
-  if (uv.ok && uv.stdout.trim()) commands.unshift(uv.stdout.trim())
+  const uv = await run_capture('uv', ['python', 'find'], { timeout_ms: 8000 })
+  if (uv.ok && uv.stdout.trim()) commands.push(uv.stdout.trim())
 
   const tried = []
   let best = null
@@ -150,6 +184,76 @@ const discover = async () => {
     error: 'No Python interpreter found',
     tried,
   }
+}
+
+// --------------------------------------------------- managed environment
+
+// Create a dedicated environment with uv and install a pinned celldega.
+//
+// This is what makes the version deterministic. A discovered Python reports
+// whatever it happens to have -- an editable checkout can even report a stale
+// version through importlib.metadata while running much newer code -- which is
+// exactly the ambiguity a managed environment removes.
+//
+// Deliberately lazy: it is only ever invoked when the user asks for it, so
+// nothing is downloaded at install time and viewing a dataset never triggers it.
+const setup_managed_env = async (on_progress = () => {}) => {
+  if (!managed_root) return { ok: false, error: 'No location set for the managed environment' }
+
+  const uv = await run_capture('uv', ['--version'], { timeout_ms: 8000 })
+  if (!uv.ok) {
+    return {
+      ok: false,
+      reason: 'no_uv',
+      error:
+        'uv is not installed. Install it from https://docs.astral.sh/uv/ and try again, or point CELLDEGA_PYTHON at a Python that already has celldega.',
+    }
+  }
+
+  on_progress({ step: 'venv', message: 'Creating environment…' })
+  const venv = await run_capture('uv', ['venv', managed_root], { timeout_ms: 180000 })
+  if (!venv.ok) {
+    return { ok: false, error: `Could not create the environment: ${venv.stderr || venv.error}` }
+  }
+
+  const spec = CELLDEGA_VERSION ? `celldega==${CELLDEGA_VERSION}` : 'celldega'
+  on_progress({ step: 'install', message: `Installing ${spec}… this downloads a few hundred MB the first time.` })
+
+  // celldega pulls numpy/scipy/pandas/anndata, so this one install covers
+  // everything the worker needs.
+  const install = await run_capture(
+    'uv',
+    ['pip', 'install', '--python', managed_python(), spec],
+    { timeout_ms: 1800000 }
+  )
+  if (!install.ok) {
+    return { ok: false, error: `Could not install ${spec}: ${(install.stderr || install.error || '').slice(-600)}` }
+  }
+
+  const probe = await probe_python(managed_python())
+  if (!probe.ok || !probe.usable) {
+    return {
+      ok: false,
+      error: probe.ok ? `Environment is missing: ${probe.missing.join(', ')}` : probe.error,
+    }
+  }
+
+  on_progress({ step: 'done', message: 'Environment ready' })
+  // Drop any worker running on a previously discovered Python
+  stop()
+  return { ok: true, ...probe }
+}
+
+const managed_env_status = async () => {
+  const python = managed_python()
+  if (!python) return { exists: false }
+  try {
+    await fsp.access(python)
+  } catch {
+    return { exists: false }
+  }
+  const probe = await probe_python(python)
+  return { exists: true, python, ...probe }
 }
 
 // ------------------------------------------------------------- lifecycle
@@ -253,4 +357,13 @@ const status = () => ({
   command: worker ? worker.command : null,
 })
 
-module.exports = { discover, request, stop, status }
+module.exports = {
+  discover,
+  request,
+  stop,
+  status,
+  set_managed_root,
+  setup_managed_env,
+  managed_env_status,
+  CELLDEGA_VERSION,
+}

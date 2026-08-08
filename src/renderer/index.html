@@ -90,6 +90,11 @@
           <select id="color_by"></select>
         </div>
 
+        <button class="btn btn-ghost" id="btn_clustergram" hidden
+                title="Aggregate expression per category and cluster it">
+          Clustergram…
+        </button>
+
         <button class="btn btn-ghost" id="btn_attach_anndata"
                 title="Colour cells by a categorical annotation from a local .h5ad">
           Attach AnnData…
@@ -114,6 +119,72 @@
       </div>
     </div>
   </section>
+
+  <!-- Clustergram view: its own window, scoped to the same dataset -->
+  <section id="cgm_view" class="viewer" hidden>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="toolbar-title">
+          <strong id="cgm_label">Clustergram</strong>
+          <span class="toolbar-detail" id="cgm_detail"></span>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <div class="pill-row" id="cgm_pills"></div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div id="clustergram"></div>
+      <div class="overlay" id="cgm_status" hidden>
+        <div class="overlay-card">
+          <div class="spinner" id="cgm_spinner"></div>
+          <div class="overlay-text" id="cgm_status_text">Loading…</div>
+          <div class="overlay-sub" id="cgm_status_sub"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Clustergram options -->
+  <div class="modal-backdrop" id="cgm_modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cgm_modal_title">
+      <h3 id="cgm_modal_title">Generate Clustergram</h3>
+      <p class="modal-note">
+        Aggregates expression per category into a signature, then clusters it.
+        This is the one step that uses Python.
+      </p>
+
+      <div id="cgm_python_status" class="banner" hidden></div>
+
+      <label class="field">
+        <span>Group cells by</span>
+        <select id="cgm_category"></select>
+      </label>
+
+      <label class="field">
+        <span>Top genes by variance — blank keeps all</span>
+        <input type="number" id="cgm_top_genes" min="2" step="10" placeholder="all genes">
+      </label>
+
+      <label class="field checkbox-field">
+        <input type="checkbox" id="cgm_zscore" checked>
+        <span>Z-score each gene across groups</span>
+      </label>
+
+      <label class="field checkbox-field">
+        <input type="checkbox" id="cgm_dot_plot" checked>
+        <span>Dot plot — colour by mean, size by fraction expressing</span>
+      </label>
+
+      <div id="cgm_error" class="banner banner-error" hidden></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn_cgm_cancel">Cancel</button>
+        <button class="btn btn-ghost" id="btn_cgm_save_table">Save signatures…</button>
+        <button class="btn btn-primary" id="btn_cgm_generate">Generate</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Open dataset dialog: local folder or remote URL, with optional AnnData -->
   <div class="modal-backdrop" id="remote_modal" hidden>

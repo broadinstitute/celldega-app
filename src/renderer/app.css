@@ -422,6 +422,19 @@ body.is-mac .toolbar { padding-left: 84px; }
 .field-status.busy { color: var(--fg-muted); }
 @media (prefers-color-scheme: dark) { .field-status.ok { color: #4ec98a; } }
 
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+.checkbox-field input { width: auto; flex: none; }
+.checkbox-field span { margin: 0; font-size: 0.88rem; color: var(--fg); }
+
+.banner-info { background: var(--code-bg); border-color: var(--border); color: var(--fg-muted); }
+
+#clustergram { position: absolute; inset: 0; overflow: auto; }
+
 .advanced { margin: 4px 0 8px; }
 .advanced summary {
   cursor: pointer;
