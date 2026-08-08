@@ -81,6 +81,37 @@ Keeping the positional form working during the transition is easy — detect an
 object in argument position 2 and branch. Given the app pins Celldega to an
 exact version, there is no rush: it can migrate on its own schedule.
 
+## AnnData join key: use `obs['cell_id']`, not `obs_names`
+
+**Worth fixing wherever this convention is written down — including Celldega.js
+and the Python side.**
+
+The documented convention is that DegaFiles `cell_id` joins to AnnData
+`obs_names`. In real Xenium `.h5ad` files that is wrong.
+
+Checked against
+`Xenium_V1_human_Pancreas_FFPE_outs.h5ad` (122,678 cells), which pairs with the
+Human Pancreas demo dataset:
+
+| | value |
+| --- | --- |
+| `obs_names` (`obs.attrs['_index']`) | `'0'`, `'1'`, `'2'` — a positional range index |
+| `obs['cell_id']` | `'aaaadnje-1'`, `'aaacalai-1'` — the actual Xenium ids |
+| DegaFiles `cell_metadata.parquet` → `cell_id` | `'aaaadnje-1'`, `'aaacalai-1'` |
+
+Joining on `obs_names` as documented matches **zero cells**, silently — every
+cell simply goes unlabelled, which looks like "the annotation didn't work"
+rather than "the join key was wrong".
+
+Celldega App therefore prefers `obs['cell_id']` when present and falls back to
+the index only when it is absent (`src/anndata_reader.js`). Anywhere else that
+performs this join should do the same, and the convention should be documented
+as **`obs['cell_id']`, falling back to `obs_names`** rather than the reverse.
+
+Related: the two sides are not the same size. That file has 122,678 cells while
+its DegaFiles has 140,702 — a ~12.8% gap — so a partial join is normal and
+should be reported, not treated as an error.
+
 ## Other observations
 
 - **Auto-fit is undocumented.** `set_initial_view_state` falls back to

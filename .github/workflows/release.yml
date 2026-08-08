@@ -137,3 +137,21 @@ jobs:
             ---
 
             Full instructions in the [README](https://github.com/broadinstitute/celldega-app#install).
+
+            <details>
+            <summary>Note for Celldega maintainers: AnnData join key</summary>
+
+            The documented convention that DegaFiles `cell_id` joins to AnnData
+            `obs_names` is **wrong for real Xenium files**. In
+            `Xenium_V1_human_Pancreas_FFPE_outs.h5ad`, `obs_names` is a positional
+            range index (`'0'`, `'1'`, `'2'`) while the actual ids live in
+            `obs['cell_id']` (`'aaaadnje-1'`, …), which is what matches DegaFiles.
+
+            Joining on `obs_names` matches **zero cells, silently** — it looks like
+            "the annotation didn't work" rather than "the join key was wrong".
+
+            Celldega App prefers `obs['cell_id']` and falls back to the index only
+            when absent. The convention should be corrected wherever it is written
+            down, including in Celldega.js. See
+            [`future/js_api.md`](https://github.com/broadinstitute/celldega-app/blob/main/future/js_api.md).
+            </details>

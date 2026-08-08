@@ -1,6 +1,23 @@
-# Future: AnnData support
+# AnnData support
 
-Deferred out of v0.1.0. Notes for when we pick it up.
+**Partly implemented as of v0.3.0** — see `src/anndata_reader.js`.
+
+Working today: attach a local `.h5ad` when opening a dataset, enumerate its
+categorical `obs` columns, and colour the Landscape by one of them using
+`uns['<column>_colors']` when present. No Python. h5wasm reads it in the main
+process; only cell ids, category codes and the palette cross IPC.
+
+Two findings from doing it, both documented in [js_api.md](js_api.md):
+
+- **The join key is `obs['cell_id']`, not `obs_names`.** Joining on `obs_names`
+  as originally specified matches zero cells in real Xenium files.
+- **Columns must be enumerated, not typed.** Of 16 obs columns in the pancreas
+  file exactly one is a usable categorical.
+
+Still open: continuous (numeric) colouring with a ramp, the expression matrix,
+`obsm` embeddings, and reporting the DegaFiles-vs-AnnData overlap to the user.
+
+The notes below are the original planning, kept for the parts not yet built.
 
 ## Why it is not here yet
 
