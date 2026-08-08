@@ -133,17 +133,54 @@ def method_cluster_signature(params):
         raise ValueError("path, category and out_dir are required")
 
     name = params.get("name") or category
-    normalize = params.get("normalize", "zscore")
-    axis = params.get("axis", "row")
+    # Library-size normalisation of the signature itself, before any z-scoring
+    normalization = params.get("normalization", "log1p_cpm")
+    zscore = params.get("zscore", "row")  # 'row' | 'col' | None
+    dot_plot = params.get("dot_plot", True)
 
     adata = anndata.read_h5ad(path)
 
-    mat = dega.clust.Matrix(adata)
-    # Collapse cells to one profile per category value -- 122k cells becomes a
-    # handful of rows, which is what makes the rest cheap.
-    mat.downsample_to(category=category)
-    if normalize:
-        mat.norm(axis=axis, by=normalize)
+    # SetCollection rather than Matrix.downsample_to. It aggregates through a
+    # sparse sets x cells membership matrix instead of materialising the full
+    # cell-by-gene frame, so it is several times faster on the same input -- and,
+    # more importantly, `aggregate="fraction"` gives the percent-expressing
+    # channel that drives a dot-plot Clustergram, which the downsample path
+    # cannot produce.
+    sets = dega.set.SetCollection(adata, set_col=category)
+    sets.calc_signature(
+        adata,
+        modality_name="expression",
+        aggregate="mean",
+        normalization=normalization,
+    )
+
+    signature = sets.mod["expression"]
+    mat = dega.clust.Matrix(signature)
+
+    # Keep the most variable genes across sets. Order matters: this MUST run
+    # before z-scoring, because z-scoring forces every gene to variance 1 and
+    # "top N by variance" then selects an arbitrary N.
+    top_genes = params.get("top_genes")
+    if top_genes:
+        n_rows_available = mat.to_df().shape[0]
+        if top_genes < n_rows_available:
+            mat.filter(axis="row", by=params.get("filter_by", "var"), num=int(top_genes))
+
+    # Z-score after aggregation, so it is computed across sets rather than
+    # across cells. 'row' is per gene, which is what makes clusters comparable.
+    if zscore:
+        mat.norm(axis=zscore, by="zscore")
+
+    if dot_plot:
+        # Colour from mean expression, dot size from percent expressing.
+        # normalization is skipped for 'fraction' -- it is already in [0, 1].
+        sets.calc_signature(
+            adata,
+            modality_name="fraction",
+            aggregate="fraction",
+        )
+        mat.set_dot_matrix(sets.mod["fraction"])
+
     mat.clust()
     mat.write_dega_files(out_dir, name=name)
 
@@ -156,7 +193,9 @@ def method_cluster_signature(params):
         "row_names": [str(x) for x in df.index[:50]],
         "col_names": [str(x) for x in df.columns[:50]],
         "category": category,
-        "normalize": normalize,
+        "normalization": normalization,
+        "zscore": zscore,
+        "dot_plot": bool(dot_plot),
     }
 
 
