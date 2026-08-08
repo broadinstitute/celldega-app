@@ -287,6 +287,26 @@ body.is-mac .toolbar { padding-left: 84px; }
 
 .toolbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .toolbar-right { display: flex; align-items: center; gap: 12px; flex: none; }
+
+.color-by { display: flex; align-items: center; gap: 7px; }
+.color-by label {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.color-by select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--fg);
+  cursor: pointer;
+  max-width: 220px;
+}
+.color-by select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .toolbar-right .btn { padding: 5px 12px; font-size: 0.85rem; white-space: nowrap; }
 .toolbar-title { min-width: 0; }
 .toolbar-title strong { font-weight: 620; font-size: 0.95rem; }
@@ -384,6 +404,23 @@ body.is-mac .toolbar { padding-left: 84px; }
   color: var(--fg);
 }
 .field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+.field-row { display: flex; gap: 8px; align-items: stretch; }
+.field-row input { flex: 1; min-width: 0; }
+.field-row .btn { white-space: nowrap; padding: 8px 12px; font-size: 0.85rem; border-color: var(--border); }
+
+/* Live validation feedback, so a bad path is obvious before you hit Open */
+.field-status {
+  font-size: 0.8rem;
+  margin-top: 6px;
+  min-height: 1.1em;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+.field-status.ok { color: #1a7f52; }
+.field-status.bad { color: var(--danger); }
+.field-status.busy { color: var(--fg-muted); }
+@media (prefers-color-scheme: dark) { .field-status.ok { color: #4ec98a; } }
 
 .advanced { margin: 4px 0 8px; }
 .advanced summary {

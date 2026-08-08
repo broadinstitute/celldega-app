@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "aws4fetch": "1.0.20",
-    "celldega": "0.24.1"
+    "celldega": "0.24.1",
+    "h5wasm": "^0.10.3"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.6.0",

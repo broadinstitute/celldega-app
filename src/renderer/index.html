@@ -41,8 +41,7 @@
       </header>
 
       <div class="action-row">
-        <button class="btn btn-primary" id="btn_open_local">Open Local Folder…</button>
-        <button class="btn" id="btn_open_remote">Open Remote URL…</button>
+        <button class="btn btn-primary" id="btn_open_dataset">Open Dataset…</button>
         <button class="btn btn-ghost" id="btn_new_window"
                 title="Open another window — independent, with its own dataset">
           Open New Window
@@ -85,6 +84,16 @@
       </div>
       <div class="toolbar-right">
         <div class="pill-row" id="viewer_pills"></div>
+
+        <div class="color-by" id="color_by_wrap" hidden>
+          <label for="color_by">COLOR BY</label>
+          <select id="color_by"></select>
+        </div>
+
+        <button class="btn btn-ghost" id="btn_attach_anndata"
+                title="Colour cells by a categorical annotation from a local .h5ad">
+          Attach AnnData…
+        </button>
         <button class="btn btn-ghost" id="btn_new_window_view"
                 title="Open another window — independent, with its own dataset">
           Open New Window
@@ -106,17 +115,34 @@
     </div>
   </section>
 
-  <!-- Remote URL dialog -->
+  <!-- Open dataset dialog: local folder or remote URL, with optional AnnData -->
   <div class="modal-backdrop" id="remote_modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="remote_modal_title">
-      <h3 id="remote_modal_title">Open remote dataset</h3>
+      <h3 id="remote_modal_title">Open dataset</h3>
       <p class="modal-note">
-        Base URL of the directory containing <code>landscape_parameters.json</code>.
+        A local folder or a URL, pointing at the directory that contains
+        <code>landscape_parameters.json</code>.
       </p>
 
       <label class="field">
-        <span>Dataset URL</span>
-        <input type="url" id="remote_url" placeholder="https://example.org/path/to/dataset" spellcheck="false">
+        <span>DegaFiles dataset</span>
+        <div class="field-row">
+          <input type="text" id="remote_url" spellcheck="false" autocomplete="off"
+                 placeholder="https://example.org/dataset  or  /path/to/dataset">
+          <button class="btn btn-ghost" id="btn_browse_dataset" type="button">Browse…</button>
+        </div>
+        <div class="field-status" id="ds_status"></div>
+      </label>
+
+      <label class="field">
+        <span>AnnData — optional, for colouring cells</span>
+        <div class="field-row">
+          <input type="text" id="ann_path" spellcheck="false" autocomplete="off"
+                 placeholder="No .h5ad attached" readonly>
+          <button class="btn btn-ghost" id="btn_browse_anndata" type="button">Browse…</button>
+          <button class="btn btn-ghost" id="btn_clear_anndata" type="button" hidden>Clear</button>
+        </div>
+        <div class="field-status" id="ann_status"></div>
       </label>
 
       <details class="advanced">

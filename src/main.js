@@ -10,6 +10,7 @@ const fsp = require('node:fs/promises')
 
 const { start_server } = require('./local_server')
 const obs_app = require('./obs_app')
+const anndata_reader = require('./anndata_reader')
 const local_source = require('./data_sources/local_source')
 const http_source = require('./data_sources/http_source')
 const authenticated_source = require('./data_sources/authenticated_source')
@@ -384,6 +385,72 @@ const register_ipc = () => {
   })
 
   ipcMain.handle('get_app_version', async () => app.getVersion())
+
+  // ---- AnnData ---------------------------------------------------------
+  //
+  // Reading happens here rather than in the renderer: an .h5ad is 100-350 MB
+  // and mostly expression data we never use, so only the compact result
+  // crosses the IPC boundary.
+
+  // Folder picker for the open-dataset form. Returns the chosen path only --
+  // mounting happens when the form is submitted, not while browsing.
+  ipcMain.handle('pick_dataset_folder', async () => {
+    const result = await dialog.showOpenDialog(focused_window(), {
+      title: 'Choose a DegaFiles / Landscape dataset folder',
+      properties: ['openDirectory'],
+      buttonLabel: 'Choose',
+    })
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+    return { ok: true, path: result.filePaths[0] }
+  })
+
+  // Live validation for the form: does this local path hold a dataset?
+  ipcMain.handle('validate_local_path', async (_event, dir_path) => {
+    if (!dir_path) return { ok: false, error: 'No path given' }
+    const dataset_dir = await local_source.find_dataset_dir(dir_path)
+    if (!dataset_dir) {
+      return {
+        ok: false,
+        error: 'No landscape_parameters.json here or one level down',
+      }
+    }
+    try {
+      const manifest = JSON.parse(
+        await fsp.readFile(path.join(dataset_dir, 'landscape_parameters.json'), 'utf8')
+      )
+      return {
+        ok: true,
+        dataset_dir,
+        technology: manifest.technology || 'unknown',
+        nested: dataset_dir !== dir_path,
+      }
+    } catch (err) {
+      return { ok: false, error: `Could not read the manifest: ${err.message}` }
+    }
+  })
+
+  ipcMain.handle('pick_anndata_file', async () => {
+    const result = await dialog.showOpenDialog(focused_window(), {
+      title: 'Attach AnnData',
+      properties: ['openFile'],
+      filters: [{ name: 'AnnData', extensions: ['h5ad'] }],
+      buttonLabel: 'Attach',
+    })
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+
+    const file_path = result.filePaths[0]
+    const info = await anndata_reader.inspect(file_path)
+    if (!info.ok) return info
+    return { ...info, path: file_path }
+  })
+
+  ipcMain.handle('anndata_inspect', async (_event, file_path) =>
+    anndata_reader.inspect(file_path)
+  )
+
+  ipcMain.handle('anndata_read_column', async (_event, { file_path, column }) =>
+    anndata_reader.read_categorical(file_path, column)
+  )
 
   // ---- obs_app bridge -------------------------------------------------
   //

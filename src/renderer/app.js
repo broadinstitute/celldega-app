@@ -22,6 +22,8 @@ const state = {
   source: null,
   cleanup: null,
   resize_timer: null,
+  // { path, info, column, meta, stats } once an .h5ad is attached
+  anndata: null,
   // Which scope this window's shared state belongs to. Windows sharing a scope
   // are linked; windows over different data are not. Today this is the dataset,
   // later it may be a cohort spanning several datasets -- so it is treated as an
@@ -142,6 +144,152 @@ const fetch_image_dimensions = async (base_url, image_name, do_fetch = fetch) =>
 // region; for a general viewer, whole-dataset is the right default.
 const AUTO_FIT_VIEW = { ini_x: 0, ini_y: 0, ini_z: 0, ini_zoom: 0 }
 
+// ---------------------------------------------------------- anndata
+
+// Fallback palette when the .h5ad carries no uns['<column>_colors'].
+// Okabe-Ito extended -- colourblind-safe, and consistent with the app chrome.
+const FALLBACK_COLORS = [
+  '#0072b2', '#e69f00', '#009e73', '#d55e00', '#cc79a7',
+  '#56b4e9', '#f0e442', '#8c564b', '#7f7f7f', '#279e68', '#aa40fc',
+]
+
+// Convert one categorical obs column into the exact shape landscape_ist wants.
+//
+// Celldega's own parquet path (objects_from_parquet) produces meta_cell as
+// { cell_id: [v0, v1, ...] } -- a POSITIONAL array matched to meta_cell_attr,
+// not an object keyed by attribute name. meta_cluster is the same idea, with
+// meta_cluster_attr naming the positions, and set_cluster_metadata looking up
+// 'color' and 'count' by index. Matching that exactly is what makes this work
+// without any change to Celldega.js.
+//
+// Only one attribute is passed at a time, which also settles which one is
+// displayed: with a bare {} model there is no cluster_attr trait, so celldega
+// falls back to meta_cell_attr[0].
+const build_meta_from_column = (col) => {
+  const colors = col.colors || col.categories.map((_, i) => FALLBACK_COLORS[i % FALLBACK_COLORS.length])
+
+  const meta_cell = {}
+  const { cell_ids, codes, categories } = col
+  for (let i = 0; i < cell_ids.length; i += 1) {
+    const code = codes[i]
+    // code < 0 is AnnData's NaN category; leave the cell out entirely so it
+    // renders unstyled rather than being lumped into the first category.
+    if (code >= 0) meta_cell[cell_ids[i]] = [categories[code]]
+  }
+
+  const meta_cluster = {}
+  categories.forEach((name, i) => {
+    meta_cluster[name] = [colors[i], col.counts[i]]
+  })
+
+  return {
+    meta_cell,
+    meta_cell_attr: [col.column],
+    meta_cluster,
+    meta_cluster_attr: ['color', 'count'],
+    n_labelled: Object.keys(meta_cell).length,
+  }
+}
+
+const render_color_by_options = () => {
+  const wrap = $('color_by_wrap')
+  const select = $('color_by')
+  const ann = state.anndata
+
+  if (!ann || !ann.info || ann.info.columns.length === 0) {
+    wrap.hidden = true
+    return
+  }
+
+  select.innerHTML = ''
+  for (const c of ann.info.columns) {
+    const opt = document.createElement('option')
+    opt.value = c.name
+    opt.textContent = `${c.name} (${c.n_categories})`
+    if (c.name === ann.column) opt.selected = true
+    select.appendChild(opt)
+  }
+  wrap.hidden = false
+}
+
+const attach_anndata = async () => {
+  const result = await api.pick_anndata_file()
+  if (result.canceled) return
+  if (!result.ok) {
+    show_status('Could not read that AnnData', result.error, {
+      spinner: false,
+      dismissable: true,
+    })
+    return
+  }
+
+  if (result.columns.length === 0) {
+    show_status(
+      'No categorical annotations found',
+      `${result.file_name} has ${result.n_obs.toLocaleString()} cells but no categorical obs column with more than one category. Only categorical annotations can be used to colour cells.`,
+      { spinner: false, dismissable: true }
+    )
+    return
+  }
+
+  state.anndata = { path: result.path, info: result, column: result.columns[0].name }
+  render_color_by_options()
+  await apply_color_by(state.anndata.column)
+}
+
+// Load an .h5ad and one of its categorical columns into state, ready for the
+// next render. Shared by the open form, the COLOR BY dropdown, and reopening a
+// recent dataset that had an AnnData attached.
+const prepare_anndata = async (file_path, column) => {
+  const info = await api.anndata_inspect(file_path)
+  if (!info.ok) return { ok: false, error: info.error }
+  if (info.columns.length === 0) {
+    return { ok: false, error: 'No categorical annotation to colour by' }
+  }
+
+  // A remembered column may be gone if the file was regenerated
+  const names = info.columns.map((c) => c.name)
+  const chosen = column && names.includes(column) ? column : names[0]
+
+  const col = await api.anndata_read_column(file_path, chosen)
+  if (!col.ok) return { ok: false, error: col.error }
+
+  state.anndata = {
+    path: file_path,
+    info,
+    column: chosen,
+    meta: build_meta_from_column(col),
+    stats: {
+      n_obs: col.n_obs,
+      n_categories: col.categories.length,
+      has_colors: Boolean(col.colors),
+      unassigned: col.unassigned,
+    },
+  }
+  return { ok: true, column: chosen, requested: column }
+}
+
+const apply_color_by = async (column) => {
+  const ann = state.anndata
+  if (!ann || !state.source) return
+
+  show_status('Reading annotation…', `${column} from ${ann.info.file_name}`)
+
+  const prepared = await prepare_anndata(ann.path, column)
+  if (!prepared.ok) {
+    show_status('Could not read that annotation', prepared.error, {
+      spinner: false,
+      dismissable: true,
+    })
+    return
+  }
+
+  // The Landscape takes cell metadata at construction, so recolouring means
+  // rebuilding. That is acceptable here -- the camera is auto-fit anyway, and
+  // it avoids needing an in-place update API in Celldega.js.
+  await load_dataset(state.source)
+}
+
 // ------------------------------------------------------------ status ui
 
 const show_status = (text, sub = '', { spinner = true, dismissable = false } = {}) => {
@@ -168,6 +316,9 @@ const show_start = () => {
   $('start_screen').hidden = false
   state.source = null
   state.scope_id = null
+  // An attached AnnData belongs to the dataset it was attached to
+  state.anndata = null
+  $('color_by_wrap').hidden = true
   api.obs_app.set_window(window_id, {
     title: 'Celldega',
     view_type: null,
@@ -273,6 +424,7 @@ const load_dataset = async (source) => {
   const view_height = el.clientHeight
 
   // Fetched only for the dimensions pill -- the camera is auto-fit by celldega
+  // eslint-disable-next-line no-unused-vars
   const image_name = manifest.image_info?.[0]?.name
   const dims = image_name ? await fetch_image_dimensions(base_url, image_name, do_fetch) : null
   const { ini_x, ini_y, ini_z, ini_zoom } = AUTO_FIT_VIEW
@@ -281,6 +433,11 @@ const load_dataset = async (source) => {
   if (dims) pills.push(`${dims.width.toLocaleString()} × ${dims.height.toLocaleString()} px`)
   if (via_proxy) pills.push('proxied')
   if (source.kind === 'authenticated') pills.push('S3 auth')
+  if (state.anndata && state.anndata.stats) {
+    const s = state.anndata.stats
+    pills.push(`${state.anndata.column} · ${s.n_categories} categories`)
+    pills.push(`${s.n_obs.toLocaleString()} annotated cells`)
+  }
   set_viewer_pills(pills)
 
   show_status('Rendering…', 'Fetching tiles and cell metadata')
@@ -288,6 +445,12 @@ const load_dataset = async (source) => {
   try {
     const creds = source.creds || {}
     const model = make_standalone_model()
+    const meta = (state.anndata && state.anndata.meta) || {
+      meta_cell: {},
+      meta_cell_attr: [],
+      meta_cluster: {},
+      meta_cluster_attr: [],
+    }
 
     if (technology === 'h&e') {
       state.cleanup = await celldega.landscape_h_e(
@@ -321,10 +484,12 @@ const load_dataset = async (source) => {
         0.25,          // trx_radius
         view_width,
         view_height,
-        {},            // meta_cell    -- fetched from base_url by celldega
-        [],            // meta_cell_attr
-        {},            // meta_cluster -- fetched from base_url by celldega
-        [],            // meta_cluster_attr
+        // Empty means celldega fetches cell metadata from base_url itself.
+        // When an AnnData is attached these carry its categories instead.
+        meta.meta_cell,
+        meta.meta_cell_attr,
+        meta.meta_cluster,
+        meta.meta_cluster_attr,
         {},            // umap
         {},            // nbhd
         false,         // nbhd_edit
@@ -362,43 +527,66 @@ const record_recent = (source) => {
     kind: source.kind,
     label: source.label,
     detail: source.detail,
+    // A file path, not a secret, so unlike credentials this is safe to persist
+    // -- and it is what makes a remembered dataset come back already coloured.
+    anndata_path: state.anndata ? state.anndata.path : null,
+    anndata_column: state.anndata ? state.anndata.column : null,
   }).then(render_recents).catch(() => {})
 }
 
 // -------------------------------------------------------------- open ops
 
-const open_local = async () => {
-  show_start_error('')
-  try {
-    const result = await api.open_local_dataset()
-    if (result.canceled) return
-    if (!result.ok) return show_start_error(result.error)
-    await load_dataset(result.source)
-  } catch (err) {
-    show_start_error(String(err.message || err))
-  }
-}
-
 const open_remote_from_modal = async () => {
-  const url = $('remote_url').value
-  const creds = {
-    accessKeyId: $('remote_access_key').value,
-    secretAccessKey: $('remote_secret_key').value,
-    sessionToken: $('remote_session_token').value,
-  }
-
   const error_el = $('remote_error')
   error_el.hidden = true
 
-  const result = await api.resolve_remote_dataset(url, creds)
-  if (!result.ok) {
-    error_el.textContent = result.error
+  // Validation runs as you type; re-run once here so hitting Enter immediately
+  // after typing cannot submit a stale or unchecked value.
+  if (!form.validated) await validate_dataset_field()
+  if (!form.validated) {
+    error_el.textContent = 'Point at a folder or URL containing landscape_parameters.json.'
     error_el.hidden = false
     return
   }
 
+  let source
+  if (form.validated.kind === 'remote') {
+    source = form.validated.source
+  } else {
+    const result = await api.reopen_local_path(form.validated.path)
+    if (!result.ok) {
+      error_el.textContent = result.error
+      error_el.hidden = false
+      return
+    }
+    source = result.source
+  }
+
+  // Set before loading so the first render is already coloured, rather than
+  // drawing once uncoloured and again with the annotation.
+  state.anndata = form.anndata
+    ? { path: form.anndata.path, info: form.anndata.info, column: form.anndata.info.columns[0].name }
+    : null
+
   close_remote_modal()
-  await load_dataset(result.source)
+
+  if (state.anndata) {
+    const col = await api.anndata_read_column(state.anndata.path, state.anndata.column)
+    if (col.ok) {
+      state.anndata.meta = build_meta_from_column(col)
+      state.anndata.stats = {
+        n_obs: col.n_obs,
+        n_categories: col.categories.length,
+        has_colors: Boolean(col.colors),
+        unassigned: col.unassigned,
+      }
+    } else {
+      state.anndata = null
+    }
+    render_color_by_options()
+  }
+
+  await load_dataset(source)
 }
 
 const open_remote_url = async (url, label, detail, kind) => {
@@ -415,20 +603,145 @@ const open_remote_url = async (url, label, detail, kind) => {
 
 const reopen_recent = async (entry) => {
   show_start_error('')
+
+  // Restore the AnnData before rendering, so a remembered dataset comes back
+  // already coloured rather than drawing plain and then again with labels.
+  // The file may have moved or been regenerated since; that must not block
+  // reopening the dataset itself.
+  state.anndata = null
+  let anndata_warning = ''
+  if (entry.anndata_path) {
+    const prepared = await prepare_anndata(entry.anndata_path, entry.anndata_column)
+    if (prepared.ok) {
+      render_color_by_options()
+      if (prepared.requested && prepared.requested !== prepared.column) {
+        anndata_warning = `“${prepared.requested}” is no longer in that AnnData — coloured by “${prepared.column}” instead.`
+      }
+    } else {
+      anndata_warning = `Could not reattach ${entry.anndata_path.split('/').pop()}: ${prepared.error}`
+    }
+  }
+
   if (entry.kind === 'local') {
     // Local mount ids are per-launch, so re-resolve the folder path
     const result = await api.reopen_local_path(entry.detail)
     if (!result.ok) return show_start_error(result.error)
-    return load_dataset(result.source)
+    await load_dataset(result.source)
+  } else {
+    await open_remote_url(entry.detail, entry.label, entry.detail, entry.kind)
   }
-  return open_remote_url(entry.detail, entry.label, entry.detail, entry.kind)
+
+  if (anndata_warning) show_start_error(anndata_warning)
 }
 
 // ---------------------------------------------------------------- modal
 
+// The open-dataset form takes a local folder or a remote URL in one field and
+// validates it as you type, so a wrong path is obvious before you commit to it
+// rather than after a failed load.
+const form = { validated: null, anndata: null, validate_token: 0, timer: null }
+
+const looks_remote = (value) => /^https?:\/\//i.test(value.trim())
+
+const set_status = (el_id, text, cls = '') => {
+  const el = $(el_id)
+  el.textContent = text
+  el.className = `field-status${cls ? ' ' + cls : ''}`
+}
+
+const set_open_enabled = (enabled) => { $('btn_remote_open').disabled = !enabled }
+
+const validate_dataset_field = async () => {
+  const raw = $('remote_url').value.trim()
+  form.validated = null
+  set_open_enabled(false)
+
+  if (!raw) return set_status('ds_status', '')
+
+  const token = ++form.validate_token
+  set_status('ds_status', 'Checking…', 'busy')
+
+  try {
+    if (looks_remote(raw)) {
+      const creds = read_creds_from_form()
+      const result = await api.resolve_remote_dataset(raw, creds)
+      if (token !== form.validate_token) return
+      if (!result.ok) return set_status('ds_status', result.error, 'bad')
+
+      const do_fetch = make_fetcher(result.source.creds)
+      const { manifest } = await resolve_base_url(result.source, do_fetch)
+      if (token !== form.validate_token) return
+
+      form.validated = { kind: 'remote', source: result.source }
+      set_status('ds_status', `Found ${manifest.technology || 'dataset'} · remote`, 'ok')
+    } else {
+      const result = await api.validate_local_path(raw)
+      if (token !== form.validate_token) return
+      if (!result.ok) return set_status('ds_status', result.error, 'bad')
+
+      form.validated = { kind: 'local', path: raw }
+      const where = result.nested ? ` · found in ${result.dataset_dir.split('/').pop()}` : ''
+      set_status('ds_status', `Found ${result.technology} · local folder${where}`, 'ok')
+    }
+    set_open_enabled(true)
+  } catch (err) {
+    if (token !== form.validate_token) return
+    set_status('ds_status', String(err.message || err), 'bad')
+  }
+}
+
+const queue_validation = () => {
+  clearTimeout(form.timer)
+  form.timer = setTimeout(validate_dataset_field, 450)
+}
+
+const read_creds_from_form = () => ({
+  accessKeyId: $('remote_access_key').value,
+  secretAccessKey: $('remote_secret_key').value,
+  sessionToken: $('remote_session_token').value,
+})
+
+const browse_dataset_folder = async () => {
+  const picked = await api.pick_dataset_folder()
+  if (!picked.ok) return
+  $('remote_url').value = picked.path
+  await validate_dataset_field()
+}
+
+const browse_anndata = async () => {
+  const result = await api.pick_anndata_file()
+  if (result.canceled) return
+  if (!result.ok) return set_status('ann_status', result.error, 'bad')
+
+  if (result.columns.length === 0) {
+    form.anndata = null
+    $('ann_path').value = result.file_name
+    $('btn_clear_anndata').hidden = false
+    return set_status(
+      'ann_status',
+      `${result.n_obs.toLocaleString()} cells, but no categorical annotation to colour by`,
+      'bad'
+    )
+  }
+
+  form.anndata = { path: result.path, info: result }
+  $('ann_path').value = result.file_name
+  $('btn_clear_anndata').hidden = false
+  const names = result.columns.map((c) => `${c.name} (${c.n_categories})`).join(', ')
+  set_status('ann_status', `${result.n_obs.toLocaleString()} cells · ${names}`, 'ok')
+}
+
+const clear_anndata_field = () => {
+  form.anndata = null
+  $('ann_path').value = ''
+  $('btn_clear_anndata').hidden = true
+  set_status('ann_status', '')
+}
+
 const open_remote_modal = () => {
   $('remote_error').hidden = true
   $('remote_modal').hidden = false
+  set_open_enabled(Boolean(form.validated))
   $('remote_url').focus()
 }
 
@@ -509,7 +822,11 @@ const render_recents = async () => {
       make_card({
         name: entry.label,
         detail: entry.detail,
-        meta: [entry.kind === 'local' ? 'Local folder' : 'Remote', format_when(entry.opened_at)]
+        meta: [
+          entry.kind === 'local' ? 'Local folder' : 'Remote',
+          entry.anndata_column ? `AnnData · ${entry.anndata_column}` : null,
+          format_when(entry.opened_at),
+        ]
           .filter(Boolean)
           .join(' · '),
         on_click: () => reopen_recent(entry),
@@ -530,9 +847,17 @@ const handle_resize = () => {
 }
 
 const wire_events = () => {
-  $('btn_open_local').addEventListener('click', open_local)
-  $('btn_open_remote').addEventListener('click', open_remote_modal)
+  $('btn_open_dataset').addEventListener('click', open_remote_modal)
   $('btn_back').addEventListener('click', show_start)
+
+  $('remote_url').addEventListener('input', queue_validation)
+  $('btn_browse_dataset').addEventListener('click', browse_dataset_folder)
+  $('btn_browse_anndata').addEventListener('click', browse_anndata)
+  $('btn_clear_anndata').addEventListener('click', clear_anndata_field)
+  // Credentials change what a remote URL resolves to, so re-check
+  for (const id of ['remote_access_key', 'remote_secret_key', 'remote_session_token']) {
+    $(id).addEventListener('input', queue_validation)
+  }
   $('status_dismiss').addEventListener('click', show_start)
 
   $('btn_remote_cancel').addEventListener('click', close_remote_modal)
@@ -566,9 +891,11 @@ const wire_events = () => {
   $('btn_new_window').addEventListener('click', () => api.new_window())
   $('btn_new_window_view').addEventListener('click', () => api.new_window())
 
+  $('btn_attach_anndata').addEventListener('click', attach_anndata)
+  $('color_by').addEventListener('change', (event) => apply_color_by(event.target.value))
+
   api.on_menu_action((action) => {
-    if (action === 'open_local') open_local()
-    if (action === 'open_remote') open_remote_modal()
+    if (action === 'open_local' || action === 'open_remote') open_remote_modal()
     if (action === 'close_dataset') show_start()
   })
 
@@ -586,8 +913,25 @@ const wire_events = () => {
 
 // ------------------------------------------------------------------ init
 
+// Attach an .h5ad by path, bypassing the native file dialog. Used by the
+// ?dev=1 hook below so the whole colour-by pipeline can be exercised
+// automatically -- a native dialog cannot be driven from a test.
+const attach_anndata_path = async (file_path) => {
+  const info = await api.anndata_inspect(file_path)
+  if (!info.ok || info.columns.length === 0) return info
+  state.anndata = { path: file_path, info, column: info.columns[0].name }
+  render_color_by_options()
+  await apply_color_by(state.anndata.column)
+  return info
+}
+
 const init = async () => {
   if (navigator.userAgent.includes('Mac OS X')) document.body.classList.add('is-mac')
+
+  // Test hook, opt-in via ?dev=1 on the window URL. Not reachable in normal use.
+  if (new URLSearchParams(location.search).get('dev') === '1') {
+    window.__dev = { state, form, attach_anndata_path, apply_color_by, build_meta_from_column }
+  }
 
   wire_events()
   await Promise.all([render_demos(), render_recents()])

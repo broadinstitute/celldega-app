@@ -33,6 +33,15 @@ contextBridge.exposeInMainWorld('celldega_app', {
 
   new_window: () => ipcRenderer.invoke('new_window'),
 
+  // AnnData: pick a local .h5ad and read one categorical obs column from it.
+  // The file is read in main; only the compact result crosses IPC.
+  pick_dataset_folder: () => ipcRenderer.invoke('pick_dataset_folder'),
+  validate_local_path: (dir_path) => ipcRenderer.invoke('validate_local_path', dir_path),
+  pick_anndata_file: () => ipcRenderer.invoke('pick_anndata_file'),
+  anndata_inspect: (file_path) => ipcRenderer.invoke('anndata_inspect', file_path),
+  anndata_read_column: (file_path, column) =>
+    ipcRenderer.invoke('anndata_read_column', { file_path, column }),
+
   // Menu-driven actions arrive here
   on_menu_action: (handler) => {
     ipcRenderer.on('menu_action', (_event, action) => handler(action))
