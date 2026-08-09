@@ -529,15 +529,22 @@ const register_ipc = () => {
     const name = String(category).replace(/[^a-zA-Z0-9_-]/g, '_')
     const meta_file = path.join(out_dir, 'cgm', name, 'meta.json')
 
+    // Stats are cached alongside the files. Without this a cache hit returned
+    // no row count, and the renderer sizes the Clustergram from exactly that --
+    // so a cached Clustergram silently rendered too short and lost its lower
+    // rows, while a freshly computed one was fine.
+    const stats_file = path.join(out_dir, 'app_stats.json')
+
     let cached = false
+    let stats = null
     try {
       await fsp.access(meta_file)
       cached = true
+      stats = JSON.parse(await fsp.readFile(stats_file, 'utf8'))
     } catch {
-      /* not cached yet */
+      cached = false
     }
 
-    let stats = null
     if (!cached) {
       await fsp.mkdir(out_dir, { recursive: true })
       const result = await python_worker.request(
@@ -547,6 +554,7 @@ const register_ipc = () => {
       )
       if (!result.ok) return { ok: false, error: result.error }
       stats = result.result
+      await fsp.writeFile(stats_file, JSON.stringify(stats)).catch(() => {})
     }
 
     // Serve the cache directory like any other dataset, so the renderer loads it

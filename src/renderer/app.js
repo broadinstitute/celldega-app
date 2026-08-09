@@ -476,8 +476,12 @@ const render_clustergram = async (spec) => {
       )
     }
 
-    const avail_w = el.clientWidth || 800
-    const avail_h = el.clientHeight || 600
+    // Available space comes from the scroller, not from the element celldega
+    // renders into -- that one grows to fit its content, so measuring it would
+    // just report whatever was drawn last.
+    const scroller = $('cgm_scroll')
+    const avail_w = scroller.clientWidth || 800
+    const avail_h = scroller.clientHeight || 600
     await draw(avail_w, avail_h)
 
     // Measure how much space celldega's own chrome takes, and give the matrix
@@ -495,14 +499,32 @@ const render_clustergram = async (spec) => {
 
     const chrome_top = matrix ? Math.max(0, Math.round(matrix.top - container.top)) : 0
     const chrome_left = matrix ? Math.max(0, Math.round(matrix.left - container.left)) : 0
-    const overflow_w = Math.max(0, el.scrollWidth - el.clientWidth)
-    const overflow_h = Math.max(0, el.scrollHeight - el.clientHeight)
+    const overflow_w = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
+    const overflow_h = 0 // vertical space is handled by the content estimate below
 
     const shrink_w = Math.max(chrome_left, overflow_w)
     const shrink_h = Math.max(chrome_top, overflow_h)
 
-    if (shrink_w > 2 || shrink_h > 2) {
-      await draw(avail_w - shrink_w, avail_h - shrink_h)
+    // Height is not a fitting problem. Celldega draws rows at a fixed height
+    // rather than scaling them to the space given, so making the canvas fit the
+    // window guarantees the lower rows and the column dendrogram are clipped
+    // *inside* it -- and being WebGL, nothing about that is scrollable or even
+    // measurable from out here.
+    //
+    // So ask for the height the content actually needs and let the container
+    // scroll. Estimated from the row count, since celldega exposes no way to
+    // ask; the constants are deliberately generous, because too tall merely
+    // adds whitespace while too short silently loses data.
+    const n_rows = (spec.stats && spec.stats.n_rows) || 0
+    const ROW_HEIGHT = 12
+    const COL_LABELS_AND_DENDRO = 260
+    const needed_h = n_rows * ROW_HEIGHT + COL_LABELS_AND_DENDRO
+
+    const final_w = avail_w - shrink_w
+    const final_h = Math.max(avail_h - shrink_h, needed_h)
+
+    if (shrink_w > 2 || shrink_h > 2 || final_h > avail_h - shrink_h) {
+      await draw(final_w, final_h)
     }
 
     state.clustergram = spec
@@ -528,6 +550,16 @@ const open_clustergram_modal = async () => {
     opt.textContent = `${c.name} (${c.n_categories})`
     if (c.name === ann.column) opt.selected = true
     select.appendChild(opt)
+  }
+
+  // Suggest a gene count that actually fits this window. celldega draws rows at
+  // a minimum height rather than scaling them, so asking for more genes than
+  // fit means scrolling -- fine, but better as a choice than a surprise.
+  if (!$('cgm_top_genes').value) {
+    const usable = (window.innerHeight || 900) - 260 - 100
+    const fits = Math.max(10, Math.floor(usable / 12))
+    $('cgm_top_genes').value = String(fits)
+    $('cgm_top_genes').placeholder = `${fits} fits this window`
   }
 
   $('cgm_modal').hidden = false
@@ -1217,6 +1249,14 @@ const render_recents = async () => {
 // ---------------------------------------------------------------- events
 
 const handle_resize = () => {
+  // A Clustergram window redraws from its cached DegaFiles, so this costs a
+  // re-render but no recomputation.
+  if (!$('cgm_view').hidden && state.clustergram) {
+    clearTimeout(state.resize_timer)
+    state.resize_timer = setTimeout(() => render_clustergram(state.clustergram), 400)
+    return
+  }
+
   if (!state.source || $('viewer').hidden) return
   clearTimeout(state.resize_timer)
   // deck.gl is handed explicit pixel dimensions at construction time, so a

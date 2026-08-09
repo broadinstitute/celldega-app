@@ -459,7 +459,11 @@ body.is-mac .toolbar { padding-left: 84px; }
 
 .banner-info { background: var(--code-bg); border-color: var(--border); color: var(--fg-muted); }
 
-#clustergram { position: absolute; inset: 0; overflow: auto; }
+/* The scroller is ours; #clustergram is celldega's and it overwrites that
+   element's inline styles (position included), so constraining it directly does
+   not survive a render. Keeping them separate is what makes scrolling work. */
+#cgm_scroll { position: absolute; inset: 0; overflow: auto; }
+#clustergram { display: block; }
 
 .advanced { margin: 4px 0 8px; }
 .advanced summary {

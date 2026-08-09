@@ -199,7 +199,11 @@
       </div>
     </div>
     <div class="canvas-wrap">
-      <div id="clustergram"></div>
+      <!-- celldega sets inline styles on the element it renders into, including
+           position, so the scrolling container must be one it does not own. -->
+      <div id="cgm_scroll">
+        <div id="clustergram"></div>
+      </div>
       <div class="overlay" id="cgm_status" hidden>
         <div class="overlay-card">
           <div class="spinner" id="cgm_spinner"></div>
