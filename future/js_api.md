@@ -76,6 +76,58 @@ caller treat views uniformly, which is exactly what a linking layer wants.
 So writing to the returned store may well not redraw anything. Either make it
 react to its own store, or return a controller like the other two.
 
+#### Proposed shape
+
+Every view returns the same object, whatever it draws:
+
+```js
+const view = await celldega.landscape_ist({ el, base_url, ... })
+
+// drive it
+view.select_genes(['CD74'])          // was update_matrix_gene / update_gene
+view.select_clusters(['4', '7'])     // was update_matrix_col / update_cluster
+view.clear_selection()
+
+// hear from it
+const off = view.on_select(({ entity, values }) => { … })   // 'gene' | 'cell_cluster'
+
+// housekeeping
+view.resize(width, height)           // or nothing, if views self-size (see #1)
+view.finalize()
+```
+
+`{ entity, values }` is deliberately the same shape going in and coming out, so
+a caller can forward one view's event straight to another without translating.
+
+What that would do to this app: linking currently needs a per-view branch for
+what to call and how to subscribe. With a common shape it collapses to
+
+```js
+for (const view of views) view.on_select(selection => channel.publish(selection))
+channel.subscribe(selection => view.select(selection))
+```
+
+and adding Yearbook or Enrich later needs no new linking code at all — which is
+the actual test of whether the interface is right.
+
+#### It can be additive
+
+None of this requires a breaking change. The new methods can be aliases over
+what already exists — `select_genes` → `update_matrix_gene` on a Landscape,
+`update_gene` on a Yearbook — with the old names kept. The value is in the
+*uniformity*, so even a thin shim delivers most of it.
+
+Two smaller consistency notes while in there:
+
+- `on_gene_select` / `on_cluster_select` / `on_clusters_select` are three
+  callbacks for one concept. One `on_select({ entity, values })` covers all
+  three, and does not need a fourth when a new entity type appears.
+- Clustergram click handlers are passed as positional constructor arguments
+  (`row_label_callback`, `col_label_callback`, `col_dendro_callback`) while
+  Landscape ones are registered after construction. Registration is better: it
+  allows more than one listener, and it does not force a caller to decide about
+  linking before the view exists.
+
 ### 3b. Return a controller from `matrix_viz`, as `landscape_ist` does
 
 `landscape_ist` returns `update_matrix_gene` / `update_matrix_col` /
