@@ -50,7 +50,33 @@ a wrapper element Celldega never sees.
 
 **Would delete:** the `#cgm_scroll` wrapper and the comment explaining it.
 
-### 3. Return a controller from `matrix_viz`, as `landscape_ist` does
+### 3. Give the views one common controller interface
+
+Every view already returns something useful for linking. No two agree on what,
+and none of it is documented:
+
+| View | Returns | Drive it from outside | Report back |
+| --- | --- | --- | --- |
+| `landscape_ist` | controller object | `update_matrix_gene`, `update_matrix_col`, `update_matrix_dendro_col` | `on_gene_select`, `on_cluster_select`, `on_clusters_select` |
+| `yearbook` | `yearbook_api` | `update_gene`, `update_cluster`, `update_page`, `update_query` | `get_query` (pull, not push) |
+| `matrix_viz` | `{ obs_store, finalize }` | the raw store — but see below | click callbacks passed *in* as arguments |
+
+Three shapes and three naming conventions for the same two jobs. The same
+operation is `update_matrix_gene` on a Landscape and `update_gene` on a
+Yearbook. Reporting a selection is a registered callback on a Landscape, a
+constructor argument on a Clustergram, and a pull-only getter on a Yearbook.
+
+Every app that links views has to special-case all three. A shared shape —
+`select_gene(genes)`, `select_clusters(ids)`, `on_select(cb)` — would let a
+caller treat views uniformly, which is exactly what a linking layer wants.
+
+`matrix_viz` is the odd one out in a second way: it returns `obs_store`, which
+*looks* like the handle for driving it, but its re-render is triggered by
+`model.on('change:selected_genes')` rather than by subscribing to its own store.
+So writing to the returned store may well not redraw anything. Either make it
+react to its own store, or return a controller like the other two.
+
+### 3b. Return a controller from `matrix_viz`, as `landscape_ist` does
 
 `landscape_ist` returns `update_matrix_gene` / `update_matrix_col` /
 `update_matrix_dendro_col`, which is what makes Clustergram → Landscape linking
