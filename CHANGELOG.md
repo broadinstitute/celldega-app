@@ -10,6 +10,37 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-08
+
+### Added
+
+- **Yearbook view**, opened from the dataset card into its own window. Takes the
+  same cell metadata shape as the Landscape, so an attached AnnData carries over
+  with no extra work, and a grid size control (2×3 up to 5×8).
+- **Yearbook joins the linked views.** A gene or cluster selected in a
+  Clustergram now reaches the Landscape *and* the Yearbook, because linking
+  routes through a dataset-scoped channel rather than view-to-view wiring —
+  adding a third view needed no change to the channel design.
+
+### Notes for Celldega maintainers
+
+Adding a second linked view made the case for a common controller interface
+concrete: `landscape_ist`, `yearbook` and `matrix_viz` each return a different
+shape, and the same operation is `update_matrix_gene` on one and `update_gene`
+on another. The app now carries a translation layer that a shared
+`select_genes` / `select_clusters` / `on_select` would delete. Proposed in
+[`future/js_api.md`](future/js_api.md).
+
+## [0.4.1] — 2026-08-08
+
+### Added
+
+- **"Set up Python environment"** when no suitable Python is found. The managed
+  environment existed but nothing in the UI could create it, so a machine
+  without celldega installed reached a dead end at the Clustergram dialog.
+- Reports when a discovered Python's celldega version differs from the one the
+  app pins, and offers the managed environment as the fix.
+
 ## [0.4.0] — 2026-08-08
 
 Cluster signatures and a Clustergram, computed with celldega.py and linked to

@@ -171,6 +171,18 @@
         </div>
 
         <div class="component-row">
+          <div class="component-name">Yearbook</div>
+          <div class="component-body">
+            <div class="component-note" id="card_yb_note">
+              Gallery of individual cells, linked to the other views.
+            </div>
+          </div>
+          <div class="component-actions">
+            <button class="btn" id="btn_card_yearbook">Open</button>
+          </div>
+        </div>
+
+        <div class="component-row">
           <div class="component-name">Clustergram</div>
           <div class="component-body">
             <div class="component-note" id="card_cgm_note">Requires an AnnData.</div>
@@ -182,6 +194,44 @@
       </section>
 
       <div id="card_error" class="banner banner-error" hidden></div>
+    </div>
+  </section>
+
+  <!-- Yearbook: its own window, scoped to the same dataset -->
+  <section id="yb_view" class="viewer" hidden>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="toolbar-title">
+          <strong id="yb_label">Yearbook</strong>
+          <span class="toolbar-detail" id="yb_detail"></span>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <div class="pill-row" id="yb_pills"></div>
+        <div class="color-by">
+          <label for="yb_grid">GRID</label>
+          <select id="yb_grid">
+            <option value="2x3">2 × 3</option>
+            <option value="3x3">3 × 3</option>
+            <option value="3x5">3 × 5</option>
+            <option value="4x6">4 × 6</option>
+            <option value="5x3">5 × 3</option>
+            <option value="5x8">5 × 8</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div id="yb_scroll">
+        <div id="yearbook"></div>
+      </div>
+      <div class="overlay" id="yb_status" hidden>
+        <div class="overlay-card">
+          <div class="spinner" id="yb_spinner"></div>
+          <div class="overlay-text" id="yb_status_text">Loading…</div>
+          <div class="overlay-sub" id="yb_status_sub"></div>
+        </div>
+      </div>
     </div>
   </section>
 

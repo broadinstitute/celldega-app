@@ -583,6 +583,28 @@ const register_ipc = () => {
     return { ok: true, base_url, name, cached, window_id: new_window_id, stats }
   })
 
+  // Open a Yearbook in its own window, over the same dataset.
+  //
+  // The window is told what to show through its obs_app state rather than
+  // being handed the data: it re-resolves the dataset and re-reads the AnnData
+  // itself. Reading a column takes ~70ms, so this is cheaper than pushing
+  // 122k cell annotations across IPC, and it keeps the window self-sufficient
+  // if it is later reloaded.
+  ipcMain.handle('open_yearbook', async (_event, options) => {
+    const { detail, kind, label, scope_id, anndata_path, anndata_column } = options || {}
+    if (!detail) return { ok: false, error: 'No dataset given' }
+
+    const win = create_window()
+    obs_app.set_window(win.__celldega_window_id, {
+      title: `${label || 'Yearbook'} — Yearbook`,
+      view_type: 'yearbook',
+      scope_id: scope_id || null,
+      label: label || null,
+      yearbook: { detail, kind, anndata_path, anndata_column },
+    })
+    return { ok: true, window_id: win.__celldega_window_id }
+  })
+
   ipcMain.handle('save_signature_table', async (_event, options) => {
     const { anndata_path, category, normalization = 'log1p_cpm', zscore = 'row' } = options || {}
     const result = await dialog.showSaveDialog(focused_window(), {

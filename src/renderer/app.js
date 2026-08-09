@@ -26,6 +26,9 @@ const state = {
   // Landscape from a selection published by another window
   landscape: null,
   clustergram: null,
+  // yearbook_api: update_gene / update_cluster / update_page / update_query
+  yearbook: null,
+  yearbook_spec: null,
   // { path, info, column, meta, stats } once an .h5ad is attached
   anndata: null,
   // Which scope this window's shared state belongs to. Windows sharing a scope
@@ -407,6 +410,128 @@ const card_generate_clustergram = async () => {
   await open_clustergram_modal()
 }
 
+// --------------------------------------------------------- yearbook
+
+// A gallery of individual cells. Takes the same meta_cell / meta_cluster shape
+// as the Landscape, so an attached AnnData carries over with no extra work.
+const render_yearbook = async (spec) => {
+  const el = $('yearbook')
+  $('start_screen').hidden = true
+  $('viewer').hidden = true
+  $('cgm_view').hidden = true
+  $('yb_view').hidden = false
+
+  $('yb_label').textContent = spec.label || 'Yearbook'
+  $('yb_status_text').textContent = 'Loading dataset…'
+  $('yb_status_sub').textContent = spec.detail || ''
+  $('yb_status').hidden = false
+
+  // Re-resolve the dataset here rather than being handed a base_url: a local
+  // mount id is per-launch, so a window that outlives a restart would hold a
+  // dead URL.
+  let source
+  if (spec.kind === 'local') {
+    const result = await api.reopen_local_path(spec.detail)
+    if (!result.ok) {
+      $('yb_spinner').hidden = true
+      $('yb_status_text').textContent = 'Could not open that dataset'
+      $('yb_status_sub').textContent = result.error
+      return
+    }
+    source = result.source
+  } else {
+    const result = await api.resolve_remote_dataset(spec.detail, null)
+    if (!result.ok) {
+      $('yb_spinner').hidden = true
+      $('yb_status_text').textContent = 'Could not open that dataset'
+      $('yb_status_sub').textContent = result.error
+      return
+    }
+    source = result.source
+  }
+
+  state.source = source
+  state.scope_id = scope_id_for(source)
+
+  // Read the annotation in this window rather than shipping 122k entries over
+  // IPC -- a column read is ~70ms.
+  let meta = { meta_cell: {}, meta_cell_attr: [], meta_cluster: {}, meta_cluster_attr: [] }
+  if (spec.anndata_path) {
+    $('yb_status_text').textContent = 'Reading annotation…'
+    const prepared = await prepare_anndata(spec.anndata_path, spec.anndata_column)
+    if (prepared.ok) meta = state.anndata.meta
+  }
+
+  const do_fetch = make_fetcher(source.creds)
+  const { base_url, manifest } = await resolve_base_url(source, do_fetch)
+
+  $('yb_detail').textContent = state.anndata
+    ? `${manifest.technology} · ${state.anndata.column}`
+    : manifest.technology || ''
+
+  const pills = []
+  if (state.anndata) pills.push(`${state.anndata.column} · ${state.anndata.stats.n_categories} categories`)
+  $('yb_pills').innerHTML = ''
+  for (const text of pills) {
+    const pill = document.createElement('span')
+    pill.className = 'pill'
+    pill.textContent = text
+    $('yb_pills').appendChild(pill)
+  }
+
+  $('yb_status_text').textContent = 'Rendering…'
+
+  try {
+    const scroller = $('yb_scroll')
+    const toolbar = document.querySelector('#yb_view .toolbar')
+    const toolbar_h = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 60
+    const width = scroller.clientWidth - 16
+    const height = window.innerHeight - toolbar_h - 16
+
+    el.innerHTML = ''
+    state.yearbook = await celldega.yearbook(
+      el,
+      make_standalone_model(),
+      '', // token
+      base_url,
+      '', // dataset_name
+      [], // cells -- empty picks a default selection
+      spec.num_rows || 2,
+      spec.num_cols || 3,
+      50, // portrait_size_um
+      4, // portrait_gap
+      width,
+      height,
+      meta.meta_cell,
+      meta.meta_cell_attr,
+      meta.meta_cluster,
+      meta.meta_cluster_attr,
+      'default', // segmentation
+      source.creds || {}
+    )
+    state.yearbook_spec = spec
+    $('yb_grid').value = `${spec.num_rows || 2}x${spec.num_cols || 3}`
+    $('yb_status').hidden = true
+  } catch (err) {
+    $('yb_spinner').hidden = true
+    $('yb_status_text').textContent = 'Could not render Yearbook'
+    $('yb_status_sub').textContent = String(err && err.message ? err.message : err)
+  }
+}
+
+const card_open_yearbook = async () => {
+  const entry = card_state.entry
+  if (!entry) return
+  await api.open_yearbook({
+    detail: entry.detail,
+    kind: entry.kind,
+    label: entry.label,
+    scope_id: entry.detail,
+    anndata_path: card_state.anndata ? card_state.anndata.path : null,
+    anndata_column: card_state.anndata ? card_state.anndata.column : null,
+  })
+}
+
 // ------------------------------------------------------- clustergram
 
 // Rendering a Clustergram needs no Python at all -- matrix_from_dega_files
@@ -686,15 +811,32 @@ const save_signature_table = async () => {
 // exposes no equivalent controller for driving a rendered Clustergram from
 // outside; see future/js_api.md.
 const apply_selection = (selection) => {
-  const landscape = state.landscape
-  if (!landscape || !selection.values || selection.values.length === 0) return
+  if (!selection.values || selection.values.length === 0) return
 
+  // Each view exposes a different controller shape for the same two operations
+  // -- see future/js_api.md, where a common interface is the third proposal.
+  // Until then this branch is the translation layer.
   try {
-    if (selection.entity === 'gene') {
-      landscape.update_matrix_gene(selection.values[0])
-    } else if (selection.entity === 'cell_cluster') {
-      if (selection.values.length === 1) landscape.update_matrix_col(selection.values[0])
-      else landscape.update_matrix_dendro_col(selection.values)
+    const landscape = state.landscape
+    if (landscape) {
+      if (selection.entity === 'gene') {
+        landscape.update_matrix_gene(selection.values[0])
+      } else if (selection.entity === 'cell_cluster') {
+        if (selection.values.length === 1) landscape.update_matrix_col(selection.values[0])
+        else landscape.update_matrix_dendro_col(selection.values)
+      }
+    }
+
+    const yearbook = state.yearbook
+    if (yearbook) {
+      if (selection.entity === 'gene' && typeof yearbook.update_gene === 'function') {
+        yearbook.update_gene(selection.values[0])
+      } else if (
+        selection.entity === 'cell_cluster' &&
+        typeof yearbook.update_cluster === 'function'
+      ) {
+        yearbook.update_cluster(selection.values[0])
+      }
     }
   } catch (err) {
     console.log(`[link] could not apply selection: ${err && err.message}`)
@@ -1357,6 +1499,15 @@ const wire_events = () => {
   })
   $('btn_card_attach').addEventListener('click', card_attach_anndata)
   $('btn_card_landscape').addEventListener('click', card_open_landscape)
+  $('btn_card_yearbook').addEventListener('click', card_open_yearbook)
+
+  // Grid size is fixed at construction, so changing it re-renders. Cheap: the
+  // dataset and annotation are already resolved and cached.
+  $('yb_grid').addEventListener('change', (event) => {
+    if (!state.yearbook_spec) return
+    const [rows, cols] = event.target.value.split('x').map(Number)
+    render_yearbook({ ...state.yearbook_spec, num_rows: rows, num_cols: cols })
+  })
   $('btn_card_clustergram').addEventListener('click', card_generate_clustergram)
 
   $('btn_clustergram').addEventListener('click', open_clustergram_modal)
@@ -1426,6 +1577,11 @@ const init = async () => {
   if (own_state && own_state.view_type === 'clustergram' && own_state.clustergram) {
     state.scope_id = own_state.scope_id || null
     await render_clustergram({ ...own_state.clustergram, label: own_state.label })
+    return
+  }
+  if (own_state && own_state.view_type === 'yearbook' && own_state.yearbook) {
+    state.scope_id = own_state.scope_id || null
+    await render_yearbook({ ...own_state.yearbook, label: own_state.label })
     return
   }
 
