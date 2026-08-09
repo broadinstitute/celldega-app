@@ -120,6 +120,71 @@
     </div>
   </section>
 
+  <!-- Dataset card: the components attached to one dataset, and the views
+       that can be opened from it. Everything here shares one scope. -->
+  <section id="card_view" class="start-screen" hidden>
+    <div class="start-inner">
+      <button class="linkish" id="btn_card_back">← All datasets</button>
+
+      <header class="start-header card-header">
+        <h1 id="card_title">Dataset</h1>
+        <p class="tagline" id="card_subtitle"></p>
+      </header>
+
+      <section class="section">
+        <div class="section-head"><h2>Components</h2></div>
+
+        <div class="component-row">
+          <div class="component-name">DegaFiles</div>
+          <div class="component-body">
+            <div class="component-detail" id="card_dega_detail">—</div>
+            <div class="component-note" id="card_dega_note"></div>
+          </div>
+          <div class="component-actions"></div>
+        </div>
+
+        <div class="component-row">
+          <div class="component-name">AnnData</div>
+          <div class="component-body">
+            <div class="component-detail" id="card_ann_detail">Not attached</div>
+            <div class="component-note" id="card_ann_note">
+              Attach an <code>.h5ad</code> to colour cells and enable Clustergrams.
+            </div>
+          </div>
+          <div class="component-actions">
+            <button class="btn btn-ghost" id="btn_card_attach">Attach…</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head"><h2>Views</h2></div>
+
+        <div class="component-row">
+          <div class="component-name">Landscape</div>
+          <div class="component-body">
+            <div class="component-note">Spatial view of the DegaFiles.</div>
+          </div>
+          <div class="component-actions">
+            <button class="btn btn-primary" id="btn_card_landscape">Open</button>
+          </div>
+        </div>
+
+        <div class="component-row">
+          <div class="component-name">Clustergram</div>
+          <div class="component-body">
+            <div class="component-note" id="card_cgm_note">Requires an AnnData.</div>
+          </div>
+          <div class="component-actions">
+            <button class="btn" id="btn_card_clustergram" disabled>Generate…</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="card_error" class="banner banner-error" hidden></div>
+    </div>
+  </section>
+
   <!-- Clustergram view: its own window, scoped to the same dataset -->
   <section id="cgm_view" class="viewer" hidden>
     <div class="toolbar">

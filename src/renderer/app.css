@@ -422,6 +422,32 @@ body.is-mac .toolbar { padding-left: 84px; }
 .field-status.busy { color: var(--fg-muted); }
 @media (prefers-color-scheme: dark) { .field-status.ok { color: #4ec98a; } }
 
+.card-secondary {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 0.78rem;
+  color: var(--accent);
+}
+.card-secondary:hover { color: var(--accent-hover); text-decoration: underline; }
+
+/* Dataset card: one row per component or view */
+.card-header { margin-top: 18px; }
+
+.component-row {
+  display: grid;
+  grid-template-columns: 132px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.component-row:last-child { border-bottom: 0; }
+.component-name { font-weight: 620; font-size: 0.92rem; }
+.component-body { min-width: 0; }
+.component-detail { font-size: 0.9rem; overflow-wrap: anywhere; }
+.component-note { color: var(--fg-muted); font-size: 0.82rem; margin-top: 3px; }
+.component-actions { display: flex; gap: 8px; flex: none; }
+
 .checkbox-field {
   display: flex;
   align-items: center;

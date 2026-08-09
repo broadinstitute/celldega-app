@@ -299,6 +299,114 @@ const apply_color_by = async (column) => {
   await load_dataset(state.source)
 }
 
+// ----------------------------------------------------- dataset card
+
+// One dataset's components (DegaFiles, AnnData) and the views that can be
+// opened from it. Everything on a card shares one scope, so the card is the
+// linking group made visible -- which is why it needs no link-graph UI.
+//
+// A door, not a turnstile: clicking a recent still opens its Landscape
+// directly. The card is for when you want to see or change what is attached.
+
+const card_state = { entry: null, anndata: null }
+
+const show_dataset_card = async (entry) => {
+  card_state.entry = entry
+  card_state.anndata = entry.anndata_path
+    ? { path: entry.anndata_path, column: entry.anndata_column }
+    : null
+
+  $('start_screen').hidden = true
+  $('viewer').hidden = true
+  $('cgm_view').hidden = true
+  $('card_view').hidden = false
+  $('card_error').hidden = true
+
+  $('card_title').textContent = entry.label
+  $('card_subtitle').textContent = entry.kind === 'local' ? 'Local dataset' : 'Remote dataset'
+  $('card_dega_detail').textContent = entry.detail
+  $('card_dega_note').textContent = entry.kind === 'local' ? 'Folder on this machine' : 'Streamed over HTTP'
+
+  await refresh_card_anndata()
+}
+
+const refresh_card_anndata = async () => {
+  const ann = card_state.anndata
+  const cgm_button = $('btn_card_clustergram')
+
+  if (!ann) {
+    $('card_ann_detail').textContent = 'Not attached'
+    $('card_ann_note').textContent = 'Attach an .h5ad to colour cells and enable Clustergrams.'
+    $('btn_card_attach').textContent = 'Attach…'
+    $('card_cgm_note').textContent = 'Requires an AnnData.'
+    cgm_button.disabled = true
+    return
+  }
+
+  $('btn_card_attach').textContent = 'Change…'
+  $('card_ann_detail').textContent = ann.path.split('/').pop()
+
+  // Read the columns so the card reports what is actually usable, rather than
+  // just that a file is attached -- a file with no categorical column cannot
+  // drive anything, and saying so here avoids a dead end later.
+  const info = await api.anndata_inspect(ann.path)
+  if (!info.ok) {
+    $('card_ann_note').textContent = info.error
+    $('card_cgm_note').textContent = 'The attached AnnData could not be read.'
+    cgm_button.disabled = true
+    return
+  }
+
+  card_state.anndata.info = info
+  const names = info.columns.map((c) => `${c.name} (${c.n_categories})`).join(', ')
+  $('card_ann_note').textContent = names
+    ? `${info.n_obs.toLocaleString()} cells · ${names}`
+    : `${info.n_obs.toLocaleString()} cells · no categorical annotation`
+
+  const usable = info.columns.length > 0
+  cgm_button.disabled = !usable
+  $('card_cgm_note').textContent = usable
+    ? 'Aggregate expression per group and cluster it. Uses Python.'
+    : 'Needs a categorical annotation to group by.'
+}
+
+const card_attach_anndata = async () => {
+  const result = await api.pick_anndata_file()
+  if (result.canceled) return
+  if (!result.ok) {
+    $('card_error').textContent = result.error
+    $('card_error').hidden = false
+    return
+  }
+  card_state.anndata = { path: result.path, column: result.columns[0] && result.columns[0].name }
+  await refresh_card_anndata()
+}
+
+// Open the Landscape this card describes, carrying its AnnData across so the
+// first render is already coloured.
+const card_open_landscape = async () => {
+  const entry = card_state.entry
+  if (!entry) return
+  await reopen_recent({
+    ...entry,
+    anndata_path: card_state.anndata ? card_state.anndata.path : null,
+    anndata_column: card_state.anndata ? card_state.anndata.column : null,
+  })
+}
+
+// A Clustergram needs only the AnnData and a scope, so it can be generated
+// straight from the card without opening the Landscape first.
+const card_generate_clustergram = async () => {
+  const entry = card_state.entry
+  const ann = card_state.anndata
+  if (!entry || !ann || !ann.info) return
+
+  state.anndata = { path: ann.path, info: ann.info, column: ann.column || ann.info.columns[0].name }
+  state.scope_id = entry.detail
+  state.source = { label: entry.label, detail: entry.detail, kind: entry.kind }
+  await open_clustergram_modal()
+}
+
 // ------------------------------------------------------- clustergram
 
 // Rendering a Clustergram needs no Python at all -- matrix_from_dega_files
@@ -372,10 +480,29 @@ const render_clustergram = async (spec) => {
     const avail_h = el.clientHeight || 600
     await draw(avail_w, avail_h)
 
-    const overflow_w = el.scrollWidth - el.clientWidth
-    const overflow_h = el.scrollHeight - el.clientHeight
-    if (overflow_w > 2 || overflow_h > 2) {
-      await draw(avail_w - Math.max(0, overflow_w), avail_h - Math.max(0, overflow_h))
+    // Measure how much space celldega's own chrome takes, and give the matrix
+    // the rest. The control panel sits ABOVE the matrix and the row labels to
+    // its LEFT, so the offset of the drawn matrix within the container is
+    // exactly the space unavailable to it.
+    //
+    // Two frames, not zero: the first draw resolves before layout has settled,
+    // so measuring immediately reports no overflow and the window stays short.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+    const container = el.getBoundingClientRect()
+    const matrix_el = el.querySelector('svg, canvas')
+    const matrix = matrix_el ? matrix_el.getBoundingClientRect() : null
+
+    const chrome_top = matrix ? Math.max(0, Math.round(matrix.top - container.top)) : 0
+    const chrome_left = matrix ? Math.max(0, Math.round(matrix.left - container.left)) : 0
+    const overflow_w = Math.max(0, el.scrollWidth - el.clientWidth)
+    const overflow_h = Math.max(0, el.scrollHeight - el.clientHeight)
+
+    const shrink_w = Math.max(chrome_left, overflow_w)
+    const shrink_h = Math.max(chrome_top, overflow_h)
+
+    if (shrink_w > 2 || shrink_h > 2) {
+      await draw(avail_w - shrink_w, avail_h - shrink_h)
     }
 
     state.clustergram = spec
@@ -985,7 +1112,7 @@ const close_remote_modal = () => { $('remote_modal').hidden = true }
 
 // ----------------------------------------------------------- card lists
 
-const make_card = ({ name, detail, meta, on_click }) => {
+const make_card = ({ name, detail, meta, on_click, on_secondary, secondary_label }) => {
   const card = document.createElement('button')
   card.className = 'card'
   card.type = 'button'
@@ -1017,6 +1144,20 @@ const make_card = ({ name, detail, meta, on_click }) => {
   }
 
   card.addEventListener('click', on_click)
+
+  if (on_secondary) {
+    // A separate control rather than a mode switch: the card itself still does
+    // the common thing (open it), and this is the way to inspect instead.
+    const link = document.createElement('span')
+    link.className = 'card-secondary'
+    link.textContent = secondary_label || 'Dataset card'
+    link.addEventListener('click', (event) => {
+      event.stopPropagation()
+      on_secondary()
+    })
+    card.appendChild(link)
+  }
+
   return card
 }
 
@@ -1066,6 +1207,8 @@ const render_recents = async () => {
           .filter(Boolean)
           .join(' · '),
         on_click: () => reopen_recent(entry),
+        on_secondary: () => show_dataset_card(entry),
+        secondary_label: 'Dataset card →',
       })
     )
   }
@@ -1129,6 +1272,14 @@ const wire_events = () => {
 
   $('btn_attach_anndata').addEventListener('click', attach_anndata)
   $('color_by').addEventListener('change', (event) => apply_color_by(event.target.value))
+
+  $('btn_card_back').addEventListener('click', () => {
+    $('card_view').hidden = true
+    $('start_screen').hidden = false
+  })
+  $('btn_card_attach').addEventListener('click', card_attach_anndata)
+  $('btn_card_landscape').addEventListener('click', card_open_landscape)
+  $('btn_card_clustergram').addEventListener('click', card_generate_clustergram)
 
   $('btn_clustergram').addEventListener('click', open_clustergram_modal)
   $('btn_cgm_cancel').addEventListener('click', close_clustergram_modal)

@@ -155,6 +155,31 @@ Suggestions, roughly in order of value:
    `select_gene` / `select_cluster` / `select_clusters` would read better and
    would not imply a Clustergram must be involved.
 
+## `width` / `height` size the matrix, not the container
+
+Both `landscape_ist` and `matrix_from_dega_files` take `width` and `height`, and
+in both cases they size the **visualization**, not the space it is drawn into.
+Celldega then adds its own chrome — a control panel above, row labels to the
+left — so passing a container's dimensions reliably overflows it, clipping the
+right-hand columns and the bottom rows.
+
+There is no way to ask for "fill this element". Callers must either know the
+chrome's size in advance (which changes whenever the UI does) or, as this app
+does, render once, measure where the matrix actually landed inside the
+container, and redraw with the difference subtracted.
+
+Worth either:
+
+- documenting that these are visualization dimensions and listing what chrome is
+  added, or better
+- accepting `width: 'fill'` / `height: 'fill'`, or simply measuring the container
+  when they are omitted. Celldega already knows how tall its own control panel
+  is; every caller having to rediscover it by measurement is the wrong division
+  of labour.
+
+Note `landscape_ist` already special-cases `width === 0` into `'100%'`, so the
+idea of a self-sizing mode is half-present.
+
 ## Linking without a widget: pass `{ on }`, not a stub
 
 `landscape_ist` enables live model updates behind `if (viz_state.model?.on)`,
