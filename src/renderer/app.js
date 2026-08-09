@@ -476,56 +476,46 @@ const render_clustergram = async (spec) => {
       )
     }
 
-    // Available space comes from the scroller, not from the element celldega
-    // renders into -- that one grows to fit its content, so measuring it would
-    // just report whatever was drawn last.
+    // celldega's own sizing is deterministic, so this needs no measuring:
+    //
+    //   root.style.height = height + height_margin   (height_margin = 100)
+    //   root.style.width  = width  + height_margin
+    //   row_offset        = mat_height / num_rows
+    //
+    // The margin is the control panel and axis chrome, and rows divide the
+    // remaining space evenly -- they scale, they do not have a minimum height.
+    // So the whole problem is just to subtract that margin from both axes;
+    // asking for the container's full size overflows it by exactly 100px in
+    // each direction, which is what was cutting off the right-hand columns and
+    // the bottom rows.
+    const CELLDEGA_MARGIN = 100
+
     const scroller = $('cgm_scroll')
-    const avail_w = scroller.clientWidth || 800
-    const avail_h = scroller.clientHeight || 600
-    await draw(avail_w, avail_h)
 
-    // Measure how much space celldega's own chrome takes, and give the matrix
-    // the rest. The control panel sits ABOVE the matrix and the row labels to
-    // its LEFT, so the offset of the drawn matrix within the container is
-    // exactly the space unavailable to it.
+    // Size from the window and the toolbar rather than from the scroller. The
+    // scroller is a flex child whose height is still settling while the view is
+    // being shown -- it reported 921 for what ends up 821 -- whereas
+    // window.innerHeight is correct immediately and the toolbar's height does
+    // not depend on what is drawn inside the scroller.
+    const toolbar = document.querySelector('#cgm_view .toolbar')
+    const toolbar_h = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 60
+
+    // Three things sit between the window and the drawn matrix, and all three
+    // have to come off the height:
     //
-    // Two frames, not zero: the first draw resolves before layout has settled,
-    // so measuring immediately reports no overflow and the window stays short.
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-
-    const container = el.getBoundingClientRect()
-    const matrix_el = el.querySelector('svg, canvas')
-    const matrix = matrix_el ? matrix_el.getBoundingClientRect() : null
-
-    const chrome_top = matrix ? Math.max(0, Math.round(matrix.top - container.top)) : 0
-    const chrome_left = matrix ? Math.max(0, Math.round(matrix.left - container.left)) : 0
-    const overflow_w = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
-    const overflow_h = 0 // vertical space is handled by the content estimate below
-
-    const shrink_w = Math.max(chrome_left, overflow_w)
-    const shrink_h = Math.max(chrome_top, overflow_h)
-
-    // Height is not a fitting problem. Celldega draws rows at a fixed height
-    // rather than scaling them to the space given, so making the canvas fit the
-    // window guarantees the lower rows and the column dendrogram are clipped
-    // *inside* it -- and being WebGL, nothing about that is scrollable or even
-    // measurable from out here.
+    //   toolbar_h        our own chrome, above the scroller
+    //   CONTROL_PANEL    celldega's cluster/dendrogram controls, above the canvas
+    //   CELLDEGA_MARGIN  height_margin, which celldega adds to what it is given
     //
-    // So ask for the height the content actually needs and let the container
-    // scroll. Estimated from the row count, since celldega exposes no way to
-    // ask; the constants are deliberately generous, because too tall merely
-    // adds whitespace while too short silently loses data.
-    const n_rows = (spec.stats && spec.stats.n_rows) || 0
-    const ROW_HEIGHT = 12
-    const COL_LABELS_AND_DENDRO = 260
-    const needed_h = n_rows * ROW_HEIGHT + COL_LABELS_AND_DENDRO
+    // Measured with all three: canvas bottom 1007 in a 1015 window. Subtracting
+    // only the margin left it at 1108, i.e. 93px below the fold -- which is
+    // exactly the missing column dendrogram.
+    const CONTROL_PANEL = 101
+    const SLACK = 8
+    const height = window.innerHeight - toolbar_h - CONTROL_PANEL - CELLDEGA_MARGIN - SLACK
+    const width = scroller.clientWidth - CELLDEGA_MARGIN - SLACK
 
-    const final_w = avail_w - shrink_w
-    const final_h = Math.max(avail_h - shrink_h, needed_h)
-
-    if (shrink_w > 2 || shrink_h > 2 || final_h > avail_h - shrink_h) {
-      await draw(final_w, final_h)
-    }
+    await draw(width, height)
 
     state.clustergram = spec
     $('cgm_status').hidden = true

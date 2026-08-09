@@ -4,7 +4,7 @@
 // run the native menu and folder picker, and persist the recents list.
 // All visualization logic lives in Celldega.js -- none of it is duplicated here.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, screen } = require('electron')
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
@@ -147,7 +147,7 @@ const write_recents = async (entries) => {
 
 // ---------------------------------------------------------------- window
 
-const create_window = () => {
+const create_window = (options = {}) => {
   window_counter += 1
   const window_id = `window_${window_counter}`
 
@@ -156,8 +156,8 @@ const create_window = () => {
   const offset = previous && windows.size > 0 ? previous.getPosition() : null
 
   const main_window = new BrowserWindow({
-    width: 1440,
-    height: 940,
+    width: options.width || 1440,
+    height: options.height || 940,
     minWidth: 900,
     minHeight: 600,
     ...(offset ? { x: offset[0] + 32, y: offset[1] + 32 } : {}),
@@ -563,7 +563,14 @@ const register_ipc = () => {
     const mount_id = server.add_local_mount(out_dir)
     const base_url = `${server.origin}/data/${mount_id}`
 
-    const win = create_window()
+    // Taller than a Landscape window: a Clustergram's rows divide the height
+    // between them, so vertical space is what decides how many genes stay
+    // legible. Clamped to the display so it cannot open partly offscreen.
+    const work_area = screen.getPrimaryDisplay().workAreaSize
+    const win = create_window({
+      width: Math.min(1440, work_area.width - 40),
+      height: Math.min(1100, work_area.height - 40),
+    })
     const new_window_id = win.__celldega_window_id
     obs_app.set_window(new_window_id, {
       title: `${label || category} — Clustergram`,
