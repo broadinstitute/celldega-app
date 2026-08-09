@@ -112,6 +112,62 @@ Related: the two sides are not the same size. That file has 122,678 cells while
 its DegaFiles has 140,702 — a ~12.8% gap — so a partial join is normal and
 should be reported, not treated as an error.
 
+## The controller API is good — it is just undiscoverable
+
+`landscape_ist` does not only return a teardown handle. It returns a controller:
+
+```js
+landscape.on_gene_select(cb)          // Landscape -> outside
+landscape.on_cluster_select(cb)
+landscape.on_clusters_select(cb)
+landscape.update_matrix_gene(gene)    // outside -> Landscape
+landscape.update_matrix_col(cluster)
+landscape.update_matrix_dendro_col(clusters)
+landscape.update_view_state(...)
+landscape.finalize()
+```
+
+This is exactly what linked views need, and Celldega App now uses it for
+Landscape ↔ Clustergram linking with no upstream change at all.
+
+**The problem is purely that nothing announces it.** The signature gives no hint
+that the return value is useful — reading the parameter list suggests
+`landscape_ist` renders and that is that. It cost real time to find, and the
+wrong conclusion ("there is no public API to drive a rendered Landscape") was
+reached twice before reading the tail of the function.
+
+Suggestions, roughly in order of value:
+
+1. **Document the return type.** A `@returns` block naming these methods would
+   have removed the whole problem.
+2. **Name it in the export.** `matrix_from_dega_files` is exported by name while
+   the Landscape controller is only reachable by keeping the return value, which
+   makes the two feel like different kinds of API.
+3. **Give the Clustergram the same treatment.** `matrix_viz` takes click
+   callbacks (out) but returns no controller (in), so a Clustergram cannot be
+   driven from outside the way a Landscape can. Linking is therefore
+   one-directional through the app: Clustergram clicks reach the Landscape,
+   Landscape clicks cannot highlight in the Clustergram. A
+   `matrix.update_selected_genes(...)` / `update_selected_cols(...)` would close
+   the loop.
+4. **The `update_matrix_*` prefix leaks the caller.** These are Landscape
+   methods; that they exist for a matrix to call is context, not identity.
+   `select_gene` / `select_cluster` / `select_clusters` would read better and
+   would not imply a Clustergram must be involved.
+
+## Linking without a widget: pass `{ on }`, not a stub
+
+`landscape_ist` enables live model updates behind `if (viz_state.model?.on)`,
+subscribing to `change:update_trigger`, `change:cell_clusters` and
+`change:selected_cells`. The guard tests `.on`; the *standalone vs widget*
+decision elsewhere tests `.get`.
+
+Those two being separate is useful and worth keeping: it means a caller can pass
+`{ on }` alone to get reactivity while still taking the standalone path. Worth
+documenting explicitly, because the natural thing to reach for — a full no-op
+stub with `get` — silently switches on the widget path and fails with
+`Cannot convert undefined or null to object`.
+
 ## Other observations
 
 - **Auto-fit is undocumented.** `set_initial_view_state` falls back to

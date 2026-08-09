@@ -22,6 +22,10 @@ const state = {
   source: null,
   cleanup: null,
   resize_timer: null,
+  // The controller returned by landscape_ist, used to drive a rendered
+  // Landscape from a selection published by another window
+  landscape: null,
+  clustergram: null,
   // { path, info, column, meta, stats } once an .h5ad is attached
   anndata: null,
   // Which scope this window's shared state belongs to. Windows sharing a scope
@@ -337,6 +341,19 @@ const render_clustergram = async (spec) => {
     // Rather than hardcode an allowance that would break whenever that chrome
     // changes, render once, measure how far the result overflows, and redraw
     // with the difference subtracted. Self-correcting for any layout.
+    // Clicking a label publishes to the shared channel rather than reaching for
+    // another window. Windows over the same dataset receive it; windows over
+    // other data do not, which is what makes linking correct by construction.
+    const publish = (entity, values) => {
+      if (!state.scope_id) return
+      api.obs_app.set_channel(
+        state.scope_id,
+        'selection',
+        { entity, values, source_view: 'clustergram' },
+        window_id
+      )
+    }
+
     const draw = async (width, height) => {
       el.innerHTML = ''
       await celldega.matrix_from_dega_files(
@@ -344,7 +361,10 @@ const render_clustergram = async (spec) => {
         spec.base_url,
         spec.name,
         Math.max(200, Math.floor(width)),
-        Math.max(200, Math.floor(height))
+        Math.max(200, Math.floor(height)),
+        (gene) => publish('gene', [gene]), // rows are genes
+        (cluster) => publish('cell_cluster', [cluster]), // columns are groups
+        (clusters) => publish('cell_cluster', clusters) // dendrogram branch
       )
     }
 
@@ -462,6 +482,28 @@ const save_signature_table = async () => {
   error_el.hidden = false
 }
 
+// Apply a selection published by another window in the same scope.
+//
+// Only the Landscape acts on this today. The Clustergram receives the same
+// events -- so a Landscape gene click already reaches it -- but matrix_viz
+// exposes no equivalent controller for driving a rendered Clustergram from
+// outside; see future/js_api.md.
+const apply_selection = (selection) => {
+  const landscape = state.landscape
+  if (!landscape || !selection.values || selection.values.length === 0) return
+
+  try {
+    if (selection.entity === 'gene') {
+      landscape.update_matrix_gene(selection.values[0])
+    } else if (selection.entity === 'cell_cluster') {
+      if (selection.values.length === 1) landscape.update_matrix_col(selection.values[0])
+      else landscape.update_matrix_dendro_col(selection.values)
+    }
+  } catch (err) {
+    console.log(`[link] could not apply selection: ${err && err.message}`)
+  }
+}
+
 // ------------------------------------------------------------ status ui
 
 const show_status = (text, sub = '', { spinner = true, dismissable = false } = {}) => {
@@ -528,6 +570,7 @@ const teardown_viewer = () => {
     }
     state.cleanup = null
   }
+  state.landscape = null
   $('landscape').innerHTML = ''
 }
 
@@ -670,6 +713,27 @@ const load_dataset = async (source) => {
         creds
       )
     }
+    // landscape_ist returns a controller, not just a teardown handle:
+    // update_matrix_gene / update_matrix_col / update_matrix_dendro_col drive a
+    // rendered Landscape from outside, and on_*_select report back. This is the
+    // same surface the Python widgets link through.
+    state.landscape = state.cleanup
+
+    if (state.landscape && typeof state.landscape.on_gene_select === 'function') {
+      const publish = (entity, values) => {
+        if (!state.scope_id) return
+        api.obs_app.set_channel(
+          state.scope_id,
+          'selection',
+          { entity, values, source_view: 'landscape' },
+          window_id
+        )
+      }
+      state.landscape.on_gene_select((gene) => publish('gene', [gene]))
+      state.landscape.on_cluster_select((cluster) => publish('cell_cluster', [cluster]))
+      state.landscape.on_clusters_select((clusters) => publish('cell_cluster', clusters))
+    }
+
     hide_status()
     record_recent(source)
 
@@ -1088,6 +1152,9 @@ const wire_events = () => {
     if (change.type !== 'channel') return
     if (change.origin_window_id === window_id) return // ignore our own echo
     if (!state.scope_id || change.scope_id !== state.scope_id) return // different data
+    if (change.channel !== 'selection' || !change.value) return
+
+    apply_selection(change.value)
   })
 }
 
