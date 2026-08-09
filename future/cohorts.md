@@ -5,6 +5,65 @@ before writing code, because cohorts touch **identity**, and identity is the
 one thing that is expensive to change once views, windows and saved projects
 depend on it.
 
+---
+
+## The smallest useful version
+
+If only one thing gets built, build this. It is a day or two of work, needs no
+Python, no new file format, and no changes to linking.
+
+**A cohort is a named list of datasets, plus one optional shared AnnData.**
+
+```
+Cohort "Pancreas study"
+  datasets   sample_A, sample_B, sample_C      (DegaFiles, as today)
+  anndata    cohort.h5ad                        (optional)
+```
+
+What it does:
+
+1. **Create one from the start screen** — name it, add datasets with the same
+   Open Dataset form already used for one. Stored in `userData` beside recents.
+2. **It gets a dataset card**, listing several DegaFiles instead of one. Same
+   card, same rows.
+3. **Views open per member.** The Landscape and Yearbook buttons gain a small
+   dataset chooser. Each opened window declares the **cohort's** `scope_id`
+   rather than its own dataset's.
+4. **That last point is the whole feature.** Windows over different samples in
+   one cohort become linked, so clicking a gene in sample A's Landscape
+   highlights it in sample B's. That is the comparison a cohort is *for*, and
+   it needs no new linking code — only a different scope key.
+
+What it deliberately does **not** do yet:
+
+- No cohort-level Clustergram. Per-sample Clustergrams still work, and a
+  cohort-wide one is a natural follow-up once `SetCollection` is wired to
+  several datasets.
+- No manifest file. Cohorts live in app storage; import/export arrives with
+  project save/load, which is the same store.
+- **No cell-level namespacing.** This is the important limitation — see below.
+
+### The one thing to be careful about
+
+Gene and cluster selections are safe to share across samples: gene `INS` means
+the same thing everywhere, and so does cluster `4` if the cohort AnnData was
+clustered jointly. **Individual cell ids are not.** `aaaadnje-1` can exist in
+two samples and mean different cells.
+
+So the minimal version should share only `gene` and `cell_cluster` selections
+across a cohort, and treat cell-level selections as per-dataset. The channel
+already carries `entity`, so this is a filter, not a redesign — but getting it
+wrong would silently highlight the wrong cells, which is worse than not
+highlighting at all.
+
+Full cell-level linking needs `cell_name_prefix` applied consistently
+everywhere `meta_cell` is built. That is the natural second step.
+
+---
+
+The rest of this document is the wider design space, for when the minimal
+version proves the idea.
+
 ## What a cohort is
 
 Several DegaFiles datasets analysed together, usually with one AnnData spanning
