@@ -7,6 +7,88 @@ Celldega App is the first substantial **non-Python** consumer of Celldega.js, so
 what it actually needs is useful evidence for that redesign. This file records
 it.
 
+---
+
+## Proposed changes to Celldega.js, by how much they would simplify this app
+
+Ordered by the amount of code and debugging they would remove here. Each is
+expanded in the sections below.
+
+### 1. Let a visualization size itself — *biggest win*
+
+Accept `width: 'fill'` / `height: 'fill'`, or measure the container when they
+are omitted. Celldega knows how tall its own control panel is and that it adds
+`height_margin`; every caller currently has to rediscover both.
+
+Today this app computes:
+
+```js
+height = window.innerHeight - toolbar_h - CONTROL_PANEL - CELLDEGA_MARGIN - SLACK
+//                                        ^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^
+//                                        101, hardcoded  100, hardcoded
+```
+
+Both constants are internal Celldega values with no accessor. **If either
+changes, the Clustergram silently clips** — the column dendrogram simply
+disappears below the fold, with no error. Getting this right took many
+iterations against a real window. `landscape_ist` already special-cases
+`width === 0` into `'100%'`, so the idea is half-present.
+
+**Would delete:** all of the sizing arithmetic, the two magic numbers, the
+settle-and-remeasure dance, and the resize handler's re-derivation.
+
+### 2. Don't write inline styles onto the caller's element
+
+`set_constants` does `root.style.height/width = ...` on the element passed in.
+Inline styles beat the caller's stylesheet, so `#clustergram { position:
+absolute; inset: 0 }` silently did nothing and the element grew to 1660px
+inside an 881px wrapper, taking the page's scroll height with it.
+
+Render into a child element Celldega creates, or document loudly that the
+passed element is owned and will be restyled. This app now works around it with
+a wrapper element Celldega never sees.
+
+**Would delete:** the `#cgm_scroll` wrapper and the comment explaining it.
+
+### 3. Return a controller from `matrix_viz`, as `landscape_ist` does
+
+`landscape_ist` returns `update_matrix_gene` / `update_matrix_col` /
+`update_matrix_dendro_col`, which is what makes Clustergram → Landscape linking
+possible. `matrix_viz` takes click callbacks (out) but returns nothing to drive
+it (in), so **linking is one-directional**: clicking a gene in the Clustergram
+highlights it in the Landscape, but clicking a gene in the Landscape cannot
+highlight it in the Clustergram.
+
+Something like `matrix.select_genes([...])` / `matrix.select_cols([...])` would
+close the loop, and the app would need no new concepts — it already routes both
+directions through one channel.
+
+### 4. Document the controller that `landscape_ist` returns
+
+It is good API. Nothing announces it, and the parameter list implies the
+function only renders. The wrong conclusion — "there is no way to drive a
+rendered Landscape from outside" — was reached twice before reading the tail of
+the function.
+
+### 5. Take an options object instead of 33 positional arguments
+
+Of 33 parameters this app needs 7. See [Suggested migration](#suggested-migration).
+
+### 6. Correct the AnnData join key in the docs
+
+`obs['cell_id']`, not `obs_names`. Joining as documented matches zero cells
+*silently*. See [the section below](#anndata-join-key-use-obscell_id-not-obs_names).
+
+### 7. Smaller things
+
+- Rename `update_matrix_*` → `select_gene` / `select_cluster`: they are
+  Landscape methods, and that a matrix calls them is context, not identity.
+- Align `landscape_h_e`'s argument order with `landscape_ist` (`el` first).
+- `meta.json` in `cgm/` is 2.8 MB against ~50 KB for all five parquet files
+  combined; likely per-node metadata that could be slimmer.
+
+---
+
 ## Current call site
 
 Exactly one, in [`src/renderer/app.js`](../src/renderer/app.js) — deliberately

@@ -510,6 +510,10 @@ const render_clustergram = async (spec) => {
     // Measured with all three: canvas bottom 1007 in a 1015 window. Subtracting
     // only the margin left it at 1108, i.e. 93px below the fold -- which is
     // exactly the missing column dendrogram.
+    // Both constants are internal celldega values with no accessor. If either
+    // changes upstream this clips again, silently -- see future/js_api.md,
+    // where self-sizing is the top request precisely because it would delete
+    // all of this arithmetic.
     const CONTROL_PANEL = 101
     const SLACK = 8
     const height = window.innerHeight - toolbar_h - CONTROL_PANEL - CELLDEGA_MARGIN - SLACK
