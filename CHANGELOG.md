@@ -16,7 +16,7 @@ Downloads for every release are on the
 
 - **Yearbook view**, opened from the dataset card into its own window. Takes the
   same cell metadata shape as the Landscape, so an attached AnnData carries over
-  with no extra work, and a grid size control (2×3 up to 5×8).
+  with no extra work, and a grid size control (2×3 up to 5×8, defaulting to 3×5).
 - **Yearbook joins the linked views.** A gene or cluster selected in a
   Clustergram now reaches the Landscape *and* the Yearbook, because linking
   routes through a dataset-scoped channel rather than view-to-view wiring —

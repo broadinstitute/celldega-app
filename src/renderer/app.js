@@ -412,6 +412,11 @@ const card_generate_clustergram = async () => {
 
 // --------------------------------------------------------- yearbook
 
+// Fills a window better than celldega's own 2x3 default, which leaves most of
+// the space empty at the sizes these windows open at.
+const YB_DEFAULT_ROWS = 3
+const YB_DEFAULT_COLS = 5
+
 // A gallery of individual cells. Takes the same meta_cell / meta_cluster shape
 // as the Landscape, so an attached AnnData carries over with no extra work.
 const render_yearbook = async (spec) => {
@@ -496,8 +501,8 @@ const render_yearbook = async (spec) => {
       base_url,
       '', // dataset_name
       [], // cells -- empty picks a default selection
-      spec.num_rows || 2,
-      spec.num_cols || 3,
+      spec.num_rows || YB_DEFAULT_ROWS,
+      spec.num_cols || YB_DEFAULT_COLS,
       50, // portrait_size_um
       4, // portrait_gap
       width,
