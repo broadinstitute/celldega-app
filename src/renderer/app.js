@@ -564,14 +564,58 @@ const open_clustergram_modal = async () => {
   status.textContent = 'Checking for Python…'
   status.hidden = false
 
+  await refresh_python_status()
+}
+
+// Report the Python situation up front, and offer a way out of it. Without the
+// setup button a machine with no suitable Python reaches a dead end here: the
+// managed environment exists but nothing would ever create it.
+const refresh_python_status = async () => {
+  const status = $('cgm_python_status')
+  const setup = $('cgm_python_setup')
+  const generate = $('btn_cgm_generate')
+
   const py = await api.python_status()
+
   if (py.ok) {
+    const managed = py.using_managed ? ' · managed environment' : ''
+    const wanted = py.wanted_celldega
+    const found = py.packages && py.packages.celldega
+    // Flag a mismatch rather than hiding it -- an editable install reports the
+    // version recorded when it was installed, which is how a checkout at 0.24.1
+    // ends up claiming 0.16.0a1.
+    const drift = wanted && found && found !== wanted ? ` (app pins ${wanted})` : ''
+
     status.className = 'banner banner-info'
-    status.textContent = `Using Python ${py.version} · celldega ${py.packages.celldega}`
-  } else {
-    status.className = 'banner banner-error'
-    status.textContent = py.error
+    status.textContent = `Python ${py.version} · celldega ${found}${drift}${managed}`
+    setup.hidden = py.using_managed || !py.managed || py.managed.exists
+    generate.disabled = false
+    return
   }
+
+  status.className = 'banner banner-error'
+  status.textContent = py.error
+  setup.hidden = false
+  generate.disabled = true
+}
+
+const setup_python_env = async () => {
+  const button = $('btn_python_setup')
+  const status = $('cgm_python_status')
+
+  button.disabled = true
+  status.className = 'banner banner-info'
+  status.textContent = 'Setting up…'
+
+  const result = await api.setup_python_env()
+
+  button.disabled = false
+  if (!result.ok) {
+    status.className = 'banner banner-error'
+    status.textContent = result.error
+    return
+  }
+  await refresh_python_status()
 }
 
 const close_clustergram_modal = () => { $('cgm_modal').hidden = true }
@@ -1319,6 +1363,14 @@ const wire_events = () => {
   $('btn_cgm_cancel').addEventListener('click', close_clustergram_modal)
   $('btn_cgm_generate').addEventListener('click', generate_clustergram)
   $('btn_cgm_save_table').addEventListener('click', save_signature_table)
+  $('btn_python_setup').addEventListener('click', setup_python_env)
+
+  // Setup takes a minute or two and downloads a lot; silence would read as a hang
+  api.on_python_setup_progress((progress) => {
+    const status = $('cgm_python_status')
+    status.className = 'banner banner-info'
+    status.textContent = progress.message
+  })
   $('cgm_modal').addEventListener('click', (event) => {
     if (event.target === $('cgm_modal')) close_clustergram_modal()
   })

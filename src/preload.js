@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('celldega_app', {
   // Clustergram: computed by the Python worker, served as DegaFiles, and
   // rendered in a new window. Python is only touched from here.
   python_status: () => ipcRenderer.invoke('python_status'),
+  setup_python_env: () => ipcRenderer.invoke('setup_python_env'),
+  on_python_setup_progress: (handler) => {
+    ipcRenderer.on('python_setup_progress', (_event, progress) => handler(progress))
+  },
   generate_clustergram: (options) => ipcRenderer.invoke('generate_clustergram', options),
   save_signature_table: (options) => ipcRenderer.invoke('save_signature_table', options),
 
