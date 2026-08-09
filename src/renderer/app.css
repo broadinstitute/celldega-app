@@ -102,6 +102,17 @@ code {
 .btn:hover { border-color: var(--accent); }
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Without this a disabled button looks identical to an enabled one and simply
+   does nothing when clicked. */
+.btn:disabled,
+.btn:disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: var(--bg-card);
+  color: var(--fg-muted);
+  transform: none;
+}
 
 .btn-primary {
   background: var(--accent);

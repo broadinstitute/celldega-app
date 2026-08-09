@@ -246,6 +246,10 @@
       </div>
       <div class="toolbar-right">
         <div class="pill-row" id="cgm_pills"></div>
+        <button class="btn btn-ghost" id="btn_cgm_save_table"
+                title="Save the signature matrix as CSV or parquet">
+          Save signatures…
+        </button>
       </div>
     </div>
     <div class="canvas-wrap">
@@ -289,8 +293,9 @@
       </label>
 
       <label class="field">
-        <span>Top genes by variance — blank keeps all</span>
-        <input type="number" id="cgm_top_genes" min="2" step="10" placeholder="all genes">
+        <span>Top genes by variance</span>
+        <input type="number" id="cgm_top_genes" min="2" step="10">
+        <div class="field-status" id="cgm_top_genes_note"></div>
       </label>
 
       <label class="field checkbox-field">
@@ -307,7 +312,6 @@
 
       <div class="modal-actions">
         <button class="btn btn-ghost" id="btn_cgm_cancel">Cancel</button>
-        <button class="btn btn-ghost" id="btn_cgm_save_table">Save signatures…</button>
         <button class="btn btn-primary" id="btn_cgm_generate">Generate</button>
       </div>
     </div>

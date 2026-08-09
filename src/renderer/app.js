@@ -9,6 +9,16 @@ const api = window.celldega_app
 
 const $ = (id) => document.getElementById(id)
 
+// Exactly one of these is ever visible. They were previously toggled ad hoc at
+// each call site, which meant opening a Landscape from the dataset card left
+// the card visible too -- both sections stacked, so the Landscape rendered into
+// half the page, and going back re-showed the card above it.
+const VIEWS = ['start_screen', 'viewer', 'card_view', 'yb_view', 'cgm_view']
+
+const show_view = (id) => {
+  for (const view of VIEWS) $(view).hidden = view !== id
+}
+
 // 3D orbit technologies use a different render path and have no image pyramid
 // to fit the camera to. Out of scope for v0.1.0 -- flagged explicitly so they
 // fail with an explanation instead of a blank canvas.
@@ -319,10 +329,7 @@ const show_dataset_card = async (entry) => {
     ? { path: entry.anndata_path, column: entry.anndata_column }
     : null
 
-  $('start_screen').hidden = true
-  $('viewer').hidden = true
-  $('cgm_view').hidden = true
-  $('card_view').hidden = false
+  show_view('card_view')
   $('card_error').hidden = true
 
   $('card_title').textContent = entry.label
@@ -385,13 +392,17 @@ const card_attach_anndata = async () => {
   await refresh_card_anndata()
 }
 
-// Open the Landscape this card describes, carrying its AnnData across so the
-// first render is already coloured.
+// Open the Landscape this card describes in its own window, carrying its
+// AnnData across so the first render is already coloured. Every view opens a
+// window, so the card stays a launcher rather than becoming one of its views.
 const card_open_landscape = async () => {
   const entry = card_state.entry
   if (!entry) return
-  await reopen_recent({
-    ...entry,
+  await api.open_landscape({
+    detail: entry.detail,
+    kind: entry.kind,
+    label: entry.label,
+    scope_id: entry.detail,
     anndata_path: card_state.anndata ? card_state.anndata.path : null,
     anndata_column: card_state.anndata ? card_state.anndata.column : null,
   })
@@ -421,10 +432,7 @@ const YB_DEFAULT_COLS = 5
 // as the Landscape, so an attached AnnData carries over with no extra work.
 const render_yearbook = async (spec) => {
   const el = $('yearbook')
-  $('start_screen').hidden = true
-  $('viewer').hidden = true
-  $('cgm_view').hidden = true
-  $('yb_view').hidden = false
+  show_view('yb_view')
 
   $('yb_label').textContent = spec.label || 'Yearbook'
   $('yb_status_text').textContent = 'Loading dataset…'
@@ -545,26 +553,30 @@ const card_open_yearbook = async () => {
 // them, which is why this window can be reopened later with no interpreter.
 const render_clustergram = async (spec) => {
   const el = $('clustergram')
-  $('start_screen').hidden = true
-  $('viewer').hidden = true
-  $('cgm_view').hidden = false
+  show_view('cgm_view')
 
   $('cgm_label').textContent = spec.label || 'Clustergram'
   $('cgm_detail').textContent = `grouped by ${spec.category}`
 
-  const pills = []
-  if (spec.stats) pills.push(`${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups`)
-  if (spec.zscore) pills.push(`z-score by ${spec.zscore}`)
-  if (spec.top_genes) pills.push(`top ${spec.top_genes} by variance`)
-  if (spec.dot_plot) pills.push('dot plot')
-  if (spec.cached) pills.push('cached')
-  $('cgm_pills').innerHTML = ''
-  for (const text of pills) {
-    const pill = document.createElement('span')
-    pill.className = 'pill'
-    pill.textContent = text
-    $('cgm_pills').appendChild(pill)
+  // Pills are filled in after drawing: whether a dot plot was actually produced
+  // is only known once the size matrix has been loaded.
+  const set_cgm_pills = () => {
+    const pills = []
+    if (spec.stats) pills.push(`${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups`)
+    if (spec.zscore) pills.push(`z-score by ${spec.zscore}`)
+    if (spec.top_genes) pills.push(`top ${spec.top_genes} by variance`)
+    if (spec.dot_plot && state.clustergram_has_dot) pills.push('dot plot')
+    else if (spec.dot_plot) pills.push('dot plot unavailable')
+    if (spec.cached) pills.push('cached')
+    $('cgm_pills').innerHTML = ''
+    for (const text of pills) {
+      const pill = document.createElement('span')
+      pill.className = 'pill'
+      pill.textContent = text
+      $('cgm_pills').appendChild(pill)
+    }
   }
+  set_cgm_pills()
 
   $('cgm_status_text').textContent = 'Loading Clustergram…'
   $('cgm_status_sub').textContent = ''
@@ -592,12 +604,40 @@ const render_clustergram = async (spec) => {
       )
     }
 
+    // Built from networkFromDegaFiles + matrix_viz rather than
+    // matrix_from_dega_files, which is otherwise the obvious call.
+    //
+    // matrix_from_dega_files hardcodes a stub model returning null for every
+    // trait except the row/col entities, and celldega reads the display mode
+    // from model.get('viz_mode'). So it always resolves to 'heatmap' -- the
+    // dot_mat.parquet we compute is loaded into network.size_mat and then
+    // ignored, which is why the dot plot never appeared despite being requested.
+    // Both pieces are public exports, so passing our own model fixes it without
+    // any upstream change.
     const draw = async (width, height) => {
       el.innerHTML = ''
-      await celldega.matrix_from_dega_files(
+      const network = await celldega.networkFromDegaFiles(spec.base_url, spec.name, {})
+
+      const has_dot = Array.isArray(network.size_mat)
+      const model = {
+        get: (key) => {
+          if (key === 'viz_mode') return has_dot && spec.dot_plot ? 'dotplot' : 'heatmap'
+          if (key === 'row_entity')
+            return JSON.stringify(network.row_entity || { entity: 'gene', attr: 'name' })
+          if (key === 'col_entity')
+            return JSON.stringify(network.col_entity || { entity: 'cell', attr: 'leiden' })
+          return null
+        },
+        set: () => {},
+        save_changes: () => {},
+        on: () => {},
+      }
+
+      state.clustergram_has_dot = has_dot
+      state.clustergram_view = await celldega.matrix_viz(
+        model,
         el,
-        spec.base_url,
-        spec.name,
+        network,
         Math.max(200, Math.floor(width)),
         Math.max(200, Math.floor(height)),
         (gene) => publish('gene', [gene]), // rows are genes
@@ -652,6 +692,7 @@ const render_clustergram = async (spec) => {
     await draw(width, height)
 
     state.clustergram = spec
+    set_cgm_pills()
     $('cgm_status').hidden = true
   } catch (err) {
     $('cgm_spinner').hidden = true
@@ -676,14 +717,14 @@ const open_clustergram_modal = async () => {
     select.appendChild(opt)
   }
 
-  // Suggest a gene count that actually fits this window. celldega draws rows at
-  // a minimum height rather than scaling them, so asking for more genes than
-  // fit means scrolling -- fine, but better as a choice than a surprise.
+  // Suggest a gene count whose rows stay legible at this window size. Rows
+  // divide the available height between them, so more genes means thinner rows.
   if (!$('cgm_top_genes').value) {
     const usable = (window.innerHeight || 900) - 260 - 100
     const fits = Math.max(10, Math.floor(usable / 12))
     $('cgm_top_genes').value = String(fits)
-    $('cgm_top_genes').placeholder = `${fits} fits this window`
+    $('cgm_top_genes_note').textContent =
+      `About ${fits} genes keeps rows readable at this window size. More still works — rows just get thinner. Clear the box to keep every gene.`
   }
 
   $('cgm_modal').hidden = false
@@ -870,8 +911,7 @@ const show_start_error = (message) => {
 
 const show_start = () => {
   teardown_viewer()
-  $('viewer').hidden = true
-  $('start_screen').hidden = false
+  show_view('start_screen')
   state.source = null
   state.scope_id = null
   // An attached AnnData belongs to the dataset it was attached to
@@ -887,8 +927,7 @@ const show_start = () => {
 
 const show_viewer = (source) => {
   show_start_error('')
-  $('start_screen').hidden = true
-  $('viewer').hidden = false
+  show_view('viewer')
   $('viewer_label').textContent = source.label
   $('viewer_detail').textContent = source.detail
   $('viewer_pills').innerHTML = ''
@@ -1498,10 +1537,7 @@ const wire_events = () => {
   $('btn_attach_anndata').addEventListener('click', attach_anndata)
   $('color_by').addEventListener('change', (event) => apply_color_by(event.target.value))
 
-  $('btn_card_back').addEventListener('click', () => {
-    $('card_view').hidden = true
-    $('start_screen').hidden = false
-  })
+  $('btn_card_back').addEventListener('click', () => show_view('start_screen'))
   $('btn_card_attach').addEventListener('click', card_attach_anndata)
   $('btn_card_landscape').addEventListener('click', card_open_landscape)
   $('btn_card_yearbook').addEventListener('click', card_open_yearbook)
@@ -1587,6 +1623,19 @@ const init = async () => {
   if (own_state && own_state.view_type === 'yearbook' && own_state.yearbook) {
     state.scope_id = own_state.scope_id || null
     await render_yearbook({ ...own_state.yearbook, label: own_state.label })
+    return
+  }
+  if (own_state && own_state.view_type === 'landscape' && own_state.landscape) {
+    const spec = own_state.landscape
+    // reopen_recent owns attaching the AnnData -- it clears state.anndata first,
+    // so preparing it here would just be undone.
+    await reopen_recent({
+      kind: spec.kind,
+      label: own_state.label,
+      detail: spec.detail,
+      anndata_path: spec.anndata_path,
+      anndata_column: spec.anndata_column,
+    })
     return
   }
 

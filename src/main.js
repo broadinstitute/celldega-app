@@ -590,6 +590,25 @@ const register_ipc = () => {
   // itself. Reading a column takes ~70ms, so this is cheaper than pushing
   // 122k cell annotations across IPC, and it keeps the window self-sufficient
   // if it is later reloaded.
+  // Opening a view from the dataset card always opens a window. The card is a
+  // launcher, so replacing its own contents would be a surprise -- and it left
+  // the card visible underneath, which is how a Landscape ended up rendering
+  // into half the page.
+  ipcMain.handle('open_landscape', async (_event, options) => {
+    const { detail, kind, label, scope_id, anndata_path, anndata_column } = options || {}
+    if (!detail) return { ok: false, error: 'No dataset given' }
+
+    const win = create_window()
+    obs_app.set_window(win.__celldega_window_id, {
+      title: `${label || 'Landscape'} — Celldega`,
+      view_type: 'landscape',
+      scope_id: scope_id || null,
+      label: label || null,
+      landscape: { detail, kind, anndata_path, anndata_column },
+    })
+    return { ok: true, window_id: win.__celldega_window_id }
+  })
+
   ipcMain.handle('open_yearbook', async (_event, options) => {
     const { detail, kind, label, scope_id, anndata_path, anndata_column } = options || {}
     if (!detail) return { ok: false, error: 'No dataset given' }
