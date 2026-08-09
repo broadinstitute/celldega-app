@@ -157,7 +157,43 @@ Of 33 parameters this app needs 7. See [Suggested migration](#suggested-migratio
 `obs['cell_id']`, not `obs_names`. Joining as documented matches zero cells
 *silently*. See [the section below](#anndata-join-key-use-obscell_id-not-obs_names).
 
-### 7. Smaller things
+### 7. `matrix_from_dega_files` silently makes dot plots impossible
+
+It is the obvious entry point for loading a Clustergram, and it hardcodes its
+model:
+
+```js
+const model = {
+  get: (key) => {
+    if (key === 'row_entity') return …
+    if (key === 'col_entity') return …
+    return null          // ← including viz_mode
+  },
+  …
+}
+```
+
+`set_constants` reads the display mode from `model.get('viz_mode')`, so through
+this entry point it is always `null` and always resolves to `'heatmap'`. A
+`dot_mat.parquet` sitting in the `cgm/` directory is dutifully loaded into
+`network.size_mat` by `networkFromDegaFiles` — and then ignored.
+
+Nothing reports this. The caller wrote the file, the loader read it, and the
+result is a heatmap. This app spent a while believing dot plots were broken
+before finding it, and now bypasses the helper entirely, calling
+`networkFromDegaFiles` + `matrix_viz` with its own model.
+
+Either:
+
+- accept a `viz_mode` (and ideally the other display options) as an argument, or
+- **default to `dotplot` when a size matrix is present** — the file only exists
+  because someone deliberately produced it, so ignoring it is never the useful
+  default.
+
+The same argument applies to any other trait `matrix_from_dega_files` silently
+pins to `null`.
+
+### 8. Smaller things
 
 - Rename `update_matrix_*` → `select_gene` / `select_cluster`: they are
   Landscape methods, and that a matrix calls them is context, not identity.

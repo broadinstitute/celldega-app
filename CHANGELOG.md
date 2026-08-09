@@ -10,6 +10,32 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-08
+
+### Fixed
+
+- **Opening a Landscape from the dataset card rendered into half the page**, and
+  going back showed it below the card. Views were toggled individually at each
+  call site, so the card was never hidden and both sections stacked. Exactly one
+  view is now visible at a time.
+- **Opening a Landscape from the card now opens a window**, as Yearbook and
+  Clustergram already did.
+- **The dot plot was computed and then discarded.** `matrix_from_dega_files`
+  hardcodes a model that returns `null` for every trait except the row/column
+  entities, and Celldega reads the display mode from `model.get('viz_mode')` —
+  so it always resolved to a heatmap, and the `dot_mat.parquet` we produce was
+  loaded and ignored. The pill also reported what was *requested* rather than
+  what was drawn, so it claimed "dot plot" over a heatmap.
+- **Disabled buttons looked enabled** — no disabled styling, so Generate
+  appeared clickable without an AnnData and simply did nothing.
+
+### Changed
+
+- The top-genes hint explains what the number means instead of saying
+  "48 fits this window".
+- **Save signatures** moved from the generate dialog to the Clustergram itself,
+  where the thing being saved is on screen.
+
 ## [0.5.0] — 2026-08-08
 
 ### Added
