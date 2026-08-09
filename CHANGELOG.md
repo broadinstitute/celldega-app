@@ -10,21 +10,58 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-08
+
+Cluster signatures and a Clustergram, computed with celldega.py and linked to
+the Landscape. **Viewing still needs no Python** — it is used only when you ask
+for a Clustergram.
+
 ### Added
 
-- Python analysis worker — discovery and protocol only, not wired to any UI.
-  Finds an existing Python (via `uv python find`, `python3`, or
-  `$CELLDEGA_PYTHON`) with numpy/scipy/pandas/anndata, starts it lazily on
-  first use, and exchanges newline-delimited JSON over stdio. **No Python is
-  bundled, none is installed, and nothing runs at install time.** Viewing a
-  dataset does not require Python and never will.
+- **Clustergram.** Aggregates expression per categorical annotation, optionally
+  z-scores, keeps the top N genes by variance, and clusters it — rendered in its
+  own window. Uses `SetCollection.calc_signature`, which also provides the
+  percent-expressing channel for a **dot plot** (colour by mean, size by
+  fraction). 122,678 cells × 377 genes reduces to 377 × 11 in a few seconds.
+- **Linked views.** Clicking a gene row, a group column, or a dendrogram branch
+  in a Clustergram drives the Landscape in another window. Selections publish to
+  a shared channel scoped by dataset, so windows over the same data follow along
+  and windows over other data are untouched. No window addresses another
+  directly.
+- **Dataset card.** One dataset's components (DegaFiles, AnnData) and the views
+  that can be opened from it, reached by a link on a recent — clicking a recent
+  still opens its Landscape directly. Reports which categorical columns are
+  actually usable rather than merely that a file is attached, and a Clustergram
+  can be generated without opening the Landscape first.
+- **Managed Python environment**, created with `uv` on request, with celldega
+  pinned to the same version as the pinned celldega.js so the two cannot drift.
+  Never at install time, never for viewing. A discovered Python is still used if
+  it has what is needed, and `CELLDEGA_PYTHON` overrides everything.
+- **Save signatures** as CSV or parquet, for use outside the app.
+- Results are cached by a hash of (file, mtime, column, options), since
+  re-clustering is iterative and toggling z-score should not recompute.
+
+### Changed
+
+- The Cervical Cancer demo dataset is now labelled "Atera Cervical Cancer", to
+  match how it is usually referred to.
 
 ### Notes for Celldega maintainers
 
-- The documented AnnData join key is wrong. DegaFiles `cell_id` joins to
-  **`obs['cell_id']`**, not `obs_names` — in real Xenium files `obs_names` is a
-  positional range index, so joining on it matches zero cells *silently*. See
-  [`future/js_api.md`](future/js_api.md).
+[`future/js_api.md`](future/js_api.md) now opens with a prioritised list of
+changes that would simplify this app, with what each would let us delete. The
+top three:
+
+1. **Let a visualization size itself.** The app hardcodes two internal Celldega
+   values it cannot query — the control panel height and `height_margin` — and
+   if either changes, the Clustergram silently clips.
+2. **Do not write inline styles onto the caller's element.** They beat the
+   caller's stylesheet, which cost a wrapper element to work around.
+3. **Return a controller from `matrix_viz`**, as `landscape_ist` does. Linking is
+   one-directional today for exactly this reason.
+
+Also still standing: the AnnData join key is `obs['cell_id']`, not `obs_names` —
+joining as documented matches zero cells *silently*.
 
 ## [0.3.0] — 2026-08-08
 
@@ -64,7 +101,7 @@ Python required** — the `.h5ad` is read with h5wasm (WebAssembly HDF5).
   same data are linked automatically, windows over different data are not —
   because a selection is only meaningful within the data it refers to. Nothing
   subscribes yet; this is the seam for linked views later.
-- Cervical Cancer demo dataset (Xenium WTA Preview FFPE).
+- Atera Cervical Cancer demo dataset (Atera Preview, FFPE).
 
 ## [0.1.4] — 2026-08-07
 
