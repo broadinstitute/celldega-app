@@ -90,6 +90,70 @@ a paid Apple Developer account ($99/year) and an equivalent certificate on
 Windows. Once signed and notarized these prompts disappear for everyone — see
 [Code signing](#code-signing).
 
+## Python — only for analysis, never for viewing
+
+**Opening and exploring a dataset needs no Python at all.** Landscapes, image
+tiles, cell metadata, and colouring by an AnnData annotation are all handled in
+JavaScript and WebAssembly.
+
+Python is used for exactly one thing today: computing cluster signatures for a
+**Clustergram**. Nothing is installed until you ask for one.
+
+### How the app finds a Python
+
+In order of preference:
+
+1. **`CELLDEGA_PYTHON`** — an explicit override, for developing against a local
+   celldega.py checkout
+2. **The app's managed environment**, if you have created one
+3. **`uv python find`**, then `python3` / `python` on your `PATH`
+
+A Python is only used if it has `numpy`, `scipy`, `pandas`, `anndata` and
+`celldega`. If one is found but is missing packages, the app says so
+specifically — *"Found Python 3.12 at …, but it is missing: celldega"* — rather
+than reporting no Python at all.
+
+### The managed environment
+
+If nothing suitable is found, the app can create its own environment with
+[uv](https://docs.astral.sh/uv/), installing **the same celldega version as the
+pinned celldega.js**, so the Python and JavaScript halves cannot drift apart.
+
+```
+location   ~/Library/Application Support/Celldega/python_env   (macOS)
+size       ~1.2 GB on disk
+time       ~30 seconds, plus download
+```
+
+That size is on disk only — it is **not** part of the app download, which stays
+around 240 MB. It is created on request, never at install time, and deleting
+the directory is a complete uninstall; the app will simply offer to recreate it.
+
+`uv` must be installed for this. If it is not, the app says so and points at
+<https://docs.astral.sh/uv/>.
+
+### Using your own Python instead
+
+If you already have an environment with celldega, point at it:
+
+```sh
+CELLDEGA_PYTHON=/path/to/your/python npm start
+```
+
+Or install celldega into a Python already on your `PATH`:
+
+```sh
+pip install celldega
+```
+
+### Why not bundle Python?
+
+A bundled scientific stack would add hundreds of megabytes to every download,
+including for the majority of users who only ever look at Landscapes — and every
+native library in it would need signing for notarization. Discovering or
+provisioning a Python keeps the base app small and the "just view my data" case
+free of it entirely.
+
 ### Updating to a new version
 
 There is no auto-update yet (it requires signing). To update: quit Celldega,
