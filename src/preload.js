@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('celldega_app', {
 
   open_external: (url) => ipcRenderer.invoke('open_external', url),
   get_app_version: () => ipcRenderer.invoke('get_app_version'),
+  get_versions: () => ipcRenderer.invoke('get_versions'),
 
   new_window: () => ipcRenderer.invoke('new_window'),
 

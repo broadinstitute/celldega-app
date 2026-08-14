@@ -48,7 +48,7 @@ beautifulsoup4==4.15.0
     # via libpysal
 botocore==1.43.56
     # via aiobotocore
-celldega==0.24.1
+celldega==0.24.2
     # via -r python/requirements.in
 certifi==2026.7.22
     # via

@@ -400,6 +400,18 @@ const register_ipc = () => {
 
   ipcMain.handle('get_app_version', async () => app.getVersion())
 
+  // Read from the pin rather than restated in the UI, which had silently drifted
+  // to showing 0.24.1 after the dependency moved on.
+  ipcMain.handle('get_versions', async () => {
+    let celldega_js = null
+    try {
+      celldega_js = require('../package.json').dependencies.celldega
+    } catch {
+      /* reported as unknown below */
+    }
+    return { app: app.getVersion(), celldega_js }
+  })
+
   // ---- AnnData ---------------------------------------------------------
   //
   // Reading happens here rather than in the renderer: an .h5ad is 100-350 MB

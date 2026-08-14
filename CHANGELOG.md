@@ -10,6 +10,17 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-08-14
+
+### Fixed
+
+- Updated Celldega.js and celldega.py to **0.24.2**, which adds missing links to
+  the documentation. Both halves move together, so the analysis runtime is
+  reported as stale and offers to rebuild against the matching version.
+- The Celldega.js version shown on the start screen is read from the actual
+  dependency rather than written into the page, where it had drifted to showing
+  0.24.1.
+
 ## [0.6.0] — 2026-08-14
 
 Make DegaFiles from raw instrument data, and a Python runtime the app manages

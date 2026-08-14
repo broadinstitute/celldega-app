@@ -1911,13 +1911,16 @@ const init = async () => {
   await Promise.all([render_demos(), render_recents()])
 
   try {
-    const version = await api.get_app_version()
+    const versions = await api.get_versions()
+    if (versions.celldega_js) {
+      $('pill_celldega').textContent = `Celldega.js ${versions.celldega_js}`
+    }
     const pill = document.createElement('span')
     pill.className = 'pill'
-    pill.textContent = `v${version}`
+    pill.textContent = `v${versions.app}`
     $('version_pills').appendChild(pill)
   } catch {
-    // Version pill is decorative
+    // Version pills are decorative
   }
 }
 

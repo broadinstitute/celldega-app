@@ -1,7 +1,7 @@
 {
   "name": "celldega-app",
   "productName": "Celldega",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js",
   "main": "src/main.js",
   "license": "SEE LICENSE IN LICENSE.txt",
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "aws4fetch": "1.0.20",
-    "celldega": "0.24.1",
+    "celldega": "0.24.2",
     "h5wasm": "^0.10.3"
   },
   "devDependencies": {
