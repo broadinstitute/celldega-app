@@ -17,10 +17,19 @@
 // request, into app-controlled storage.
 
 const { spawn } = require('node:child_process')
+const crypto = require('node:crypto')
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
 const WORKER_SCRIPT = path.join(__dirname, '..', 'python', 'worker.py')
+
+// Every version of every package, resolved once at build time rather than at
+// each user's install time. Without it two users installing the same app
+// release can get different numpy versions, which is the sort of difference
+// that shows up as a subtly different result rather than an error.
+const REQUIREMENTS_LOCK = path.join(__dirname, '..', 'python', 'requirements.lock')
+
+const RUNTIME_SCHEMA = 1
 
 // The CPython uv provisions for us. Pinned so a given app release always builds
 // the same environment.
@@ -69,6 +78,41 @@ const CELLDEGA_VERSION = (() => {
 // Where a managed environment lives. Set by main, which owns userData.
 let managed_root = null
 const set_managed_root = (dir) => { managed_root = dir }
+
+// A marker written beside the environment recording what it was built from.
+// Checking it is cheap; importing the whole scientific stack to find out is
+// not, and would be paid on every launch.
+const state_file = () => (managed_root ? path.join(managed_root, '..', 'state.json') : null)
+
+const lock_hash = async () => {
+  try {
+    const contents = await fsp.readFile(REQUIREMENTS_LOCK)
+    return crypto.createHash('sha256').update(contents).digest('hex').slice(0, 16)
+  } catch {
+    return null
+  }
+}
+
+const read_runtime_state = async () => {
+  const file = state_file()
+  if (!file) return null
+  try {
+    return JSON.parse(await fsp.readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+const write_runtime_state = async (state) => {
+  const file = state_file()
+  if (!file) return
+  try {
+    await fsp.mkdir(path.dirname(file), { recursive: true })
+    await fsp.writeFile(file, JSON.stringify(state, null, 2))
+  } catch {
+    // A missing marker only costs a deeper check next time
+  }
+}
 
 const managed_python = () =>
   managed_root
@@ -282,18 +326,32 @@ const setup_managed_env = async (on_progress = () => {}) => {
     return { ok: false, error: `Could not create the environment: ${venv.stderr || venv.error}` }
   }
 
-  const spec = CELLDEGA_VERSION ? `celldega==${CELLDEGA_VERSION}` : 'celldega'
-  on_progress({ step: 'install', message: `Installing ${spec}… this downloads a few hundred MB the first time.` })
+  // Install from the lockfile, not from `celldega==x.y.z`. Resolving at install
+  // time would give different users different dependency versions for the same
+  // app release; `pip sync` installs exactly the locked set and nothing else.
+  const have_lock = await fsp
+    .access(REQUIREMENTS_LOCK)
+    .then(() => true)
+    .catch(() => false)
 
-  // celldega pulls numpy/scipy/pandas/anndata, so this one install covers
-  // everything the worker needs.
-  const install = await run_capture(
-    uv,
-    ['pip', 'install', '--python', managed_python(), spec],
-    { timeout_ms: 1800000, env }
-  )
+  const spec = CELLDEGA_VERSION ? `celldega==${CELLDEGA_VERSION}` : 'celldega'
+  on_progress({
+    step: 'install',
+    message: have_lock
+      ? 'Installing pinned packages… this downloads about 1 GB the first time.'
+      : `Installing ${spec}… this downloads about 1 GB the first time.`,
+  })
+
+  const install_args = have_lock
+    ? ['pip', 'sync', '--python', managed_python(), REQUIREMENTS_LOCK]
+    : ['pip', 'install', '--python', managed_python(), spec]
+
+  const install = await run_capture(uv, install_args, { timeout_ms: 1800000, env })
   if (!install.ok) {
-    return { ok: false, error: `Could not install ${spec}: ${(install.stderr || install.error || '').slice(-600)}` }
+    return {
+      ok: false,
+      error: `Could not install the analysis packages: ${(install.stderr || install.error || '').slice(-600)}`,
+    }
   }
 
   const probe = await probe_python(managed_python())
@@ -304,10 +362,124 @@ const setup_managed_env = async (on_progress = () => {}) => {
     }
   }
 
+  await write_runtime_state({
+    schema: RUNTIME_SCHEMA,
+    python: probe.version,
+    celldega: probe.packages.celldega,
+    lock_hash: await lock_hash(),
+    built_at: new Date().toISOString(),
+  })
+
   on_progress({ step: 'done', message: 'Environment ready' })
   // Drop any worker running on a previously discovered Python
   stop()
   return { ok: true, ...probe }
+}
+
+// Is the installed environment the one this app release expects?
+//
+// Compares a recorded marker rather than importing anything, so it is cheap
+// enough to check before every job. An app upgrade that changes the lockfile
+// makes the existing environment stale, and silently continuing with it would
+// mean computing against different package versions than the release was
+// built and tested with.
+const runtime_staleness = async () => {
+  const state = await read_runtime_state()
+  if (!state) return { known: false }
+
+  const expected_lock = await lock_hash()
+  const stale_lock = Boolean(expected_lock && state.lock_hash && state.lock_hash !== expected_lock)
+  const stale_celldega = Boolean(
+    CELLDEGA_VERSION && state.celldega && state.celldega !== CELLDEGA_VERSION
+  )
+  const stale_schema = state.schema !== RUNTIME_SCHEMA
+
+  return {
+    known: true,
+    state,
+    stale: stale_lock || stale_celldega || stale_schema,
+    reason: stale_celldega
+      ? `built for celldega ${state.celldega}, this version expects ${CELLDEGA_VERSION}`
+      : stale_lock
+        ? 'the pinned package set changed in this version of the app'
+        : stale_schema
+          ? 'built by an older version of the app'
+          : null,
+  }
+}
+
+// Delete the managed environment and its provisioned Python. Deliberately
+// scoped to that directory: datasets, AnnData files, generated artifacts and
+// recents live elsewhere and must survive.
+const remove_managed_env = async () => {
+  if (!managed_root) return { ok: false, error: 'No managed environment configured' }
+  stop()
+  const root = path.dirname(managed_root)
+  try {
+    await fsp.rm(root, { recursive: true, force: true })
+    return { ok: true, removed: root }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
+// An environment left behind by an earlier app version, which kept it at a
+// different path. It is not reused: it was built against whatever Python was
+// available then, rather than one we provisioned, so it is not the environment
+// this release expects. But it is ~1.2 GB, so it is reported rather than
+// silently stranded, and the user decides whether to reclaim the space.
+let legacy_root = null
+const set_legacy_root = (dir) => { legacy_root = dir }
+
+const legacy_env_status = async () => {
+  if (!legacy_root) return { exists: false }
+  try {
+    await fsp.access(legacy_root)
+  } catch {
+    return { exists: false }
+  }
+  return { exists: true, path: legacy_root, size_bytes: await dir_size(legacy_root) }
+}
+
+const remove_legacy_env = async () => {
+  if (!legacy_root) return { ok: false, error: 'No previous environment configured' }
+  try {
+    await fsp.rm(legacy_root, { recursive: true, force: true })
+    return { ok: true, removed: legacy_root }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+}
+
+// Best-effort: a slow or failed walk should never stop the panel rendering.
+const dir_size = async (root) => {
+  let total = 0
+  const walk = async (dir) => {
+    let entries
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) await walk(full)
+      else if (entry.isFile()) {
+        try {
+          total += (await fsp.stat(full)).size
+        } catch {
+          /* vanished mid-walk */
+        }
+      }
+    }
+  }
+  await walk(root)
+  return total
+}
+
+const managed_env_size = async () => {
+  if (!managed_root) return null
+  return dir_size(path.dirname(managed_root))
 }
 
 const managed_env_status = async () => {
@@ -424,6 +596,13 @@ const status = () => ({
 })
 
 module.exports = {
+  set_legacy_root,
+  legacy_env_status,
+  remove_legacy_env,
+  runtime_staleness,
+  remove_managed_env,
+  managed_env_size,
+  read_runtime_state,
   set_uv_path,
   set_python_install_dir,
   set_allow_system_python,

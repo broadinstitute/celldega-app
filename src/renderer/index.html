@@ -268,6 +268,53 @@
     </div>
   </section>
 
+  <!-- Analysis runtime: what is installed, and how to rebuild or remove it -->
+  <div class="modal-backdrop" id="runtime_modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="runtime_modal_title">
+      <h3 id="runtime_modal_title">Analysis runtime</h3>
+      <p class="modal-note">
+        A private Python environment used only for analysis. Viewing datasets
+        never needs it, and removing it leaves your data, AnnData files and
+        generated results untouched.
+      </p>
+
+      <div id="runtime_status" class="banner banner-info">Checking…</div>
+
+      <div class="component-row" id="runtime_detail_row" hidden>
+        <div class="component-name">Installed</div>
+        <div class="component-body">
+          <div class="component-detail" id="runtime_versions">—</div>
+          <div class="component-note" id="runtime_path"></div>
+        </div>
+        <div class="component-actions">
+          <span class="pill" id="runtime_size">—</span>
+        </div>
+      </div>
+
+      <div class="component-row" id="runtime_legacy_row" hidden>
+        <div class="component-name">Previous</div>
+        <div class="component-body">
+          <div class="component-detail">An environment from an earlier version</div>
+          <div class="component-note">
+            No longer used. Removing it frees the space and affects nothing else.
+          </div>
+        </div>
+        <div class="component-actions">
+          <span class="pill" id="runtime_legacy_size">—</span>
+          <button class="btn btn-ghost" id="btn_runtime_remove_legacy">Remove</button>
+        </div>
+      </div>
+
+      <div id="runtime_error" class="banner banner-error" hidden></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn_runtime_close">Close</button>
+        <button class="btn btn-ghost" id="btn_runtime_remove" hidden>Remove</button>
+        <button class="btn btn-primary" id="btn_runtime_build">Set up</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Clustergram options -->
   <div class="modal-backdrop" id="cgm_modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cgm_modal_title">

@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('celldega_app', {
   // rendered in a new window. Python is only touched from here.
   python_status: () => ipcRenderer.invoke('python_status'),
   setup_python_env: () => ipcRenderer.invoke('setup_python_env'),
+  runtime_info: () => ipcRenderer.invoke('runtime_info'),
+  remove_python_env: () => ipcRenderer.invoke('remove_python_env'),
+  remove_legacy_python_env: () => ipcRenderer.invoke('remove_legacy_python_env'),
   on_python_setup_progress: (handler) => {
     ipcRenderer.on('python_setup_progress', (_event, progress) => handler(progress))
   },

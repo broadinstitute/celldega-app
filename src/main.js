@@ -243,6 +243,10 @@ const build_menu = () => {
           click: () => send_menu_action('close_dataset'),
         },
         {
+          label: 'Analysis Runtime…',
+          click: () => send_menu_action('runtime_settings'),
+        },
+        {
           label: 'Forget Stored Credentials',
           click: () => {
             const count = session_creds.size
@@ -476,6 +480,33 @@ const register_ipc = () => {
     }
   })
 
+  ipcMain.handle('runtime_info', async () => {
+    const [managed, staleness, size, legacy] = await Promise.all([
+      python_worker.managed_env_status(),
+      python_worker.runtime_staleness(),
+      python_worker.managed_env_size(),
+      python_worker.legacy_env_status(),
+    ])
+    return {
+      exists: managed.exists,
+      usable: Boolean(managed.usable),
+      python: managed.version || null,
+      packages: managed.packages || null,
+      path: managed.python || null,
+      size_bytes: size,
+      state: staleness.state || null,
+      stale: Boolean(staleness.stale),
+      stale_reason: staleness.reason || null,
+      wanted_celldega: python_worker.CELLDEGA_VERSION,
+      wanted_python: python_worker.MANAGED_PYTHON_VERSION,
+      legacy,
+    }
+  })
+
+  ipcMain.handle('remove_legacy_python_env', async () => python_worker.remove_legacy_env())
+
+  ipcMain.handle('remove_python_env', async () => python_worker.remove_managed_env())
+
   ipcMain.handle('setup_python_env', async (event) => {
     const send_progress = (progress) => {
       if (!event.sender.isDestroyed()) event.sender.send('python_setup_progress', progress)
@@ -707,6 +738,10 @@ app.whenReady().then(async () => {
   const python_root = path.join(app.getPath('userData'), 'python')
   python_worker.set_managed_root(path.join(python_root, 'env'))
   python_worker.set_python_install_dir(path.join(python_root, 'runtime'))
+  // Where 0.4.x kept its environment. Reported so ~1.2 GB is not silently
+  // stranded by the move, but never reused: it was built against whatever
+  // Python was around then rather than one we provisioned.
+  python_worker.set_legacy_root(path.join(app.getPath('userData'), 'python_env'))
 
   // uv is shipped as an extraResource so it sits outside app.asar -- an
   // executable cannot be run from inside an archive. In a dev checkout it is

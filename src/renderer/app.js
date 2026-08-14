@@ -770,6 +770,101 @@ const refresh_python_status = async () => {
   generate.disabled = true
 }
 
+// ------------------------------------------------------ runtime settings
+
+const format_size = (bytes) =>
+  bytes == null ? '—' : bytes > 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`
+
+const open_runtime_modal = async () => {
+  $('runtime_error').hidden = true
+  $('runtime_modal').hidden = false
+  await refresh_runtime_modal()
+}
+
+const refresh_runtime_modal = async () => {
+  const status = $('runtime_status')
+  const row = $('runtime_detail_row')
+  const build = $('btn_runtime_build')
+  const remove = $('btn_runtime_remove')
+
+  status.className = 'banner banner-info'
+  status.textContent = 'Checking…'
+  row.hidden = true
+  remove.hidden = true
+
+  const info = await api.runtime_info()
+
+  // An environment left where 0.4.x kept it. Reported rather than silently
+  // stranding ~1.2 GB, but never reused -- it was not built by us.
+  const legacy = info.legacy || {}
+  $('runtime_legacy_row').hidden = !legacy.exists
+  if (legacy.exists) $('runtime_legacy_size').textContent = format_size(legacy.size_bytes)
+
+  if (!info.exists) {
+    status.className = 'banner banner-info'
+    status.textContent = `Not installed. About 1.3 GB will be downloaded, once. Python ${info.wanted_python} · celldega ${info.wanted_celldega}.`
+    build.textContent = 'Set up'
+    build.hidden = false
+    return
+  }
+
+  row.hidden = false
+  remove.hidden = false
+  $('runtime_versions').textContent = info.packages
+    ? `Python ${info.python} · celldega ${info.packages.celldega}`
+    : `Python ${info.python || 'unknown'}`
+  $('runtime_path').textContent = info.path || ''
+  $('runtime_size').textContent = format_size(info.size_bytes)
+
+  // Stale is not broken -- it still runs, but it was built from a different
+  // pinned set than this app release expects, so results would not match what
+  // the release was tested with.
+  if (info.stale) {
+    status.className = 'banner banner-error'
+    status.textContent = `Needs rebuilding — ${info.stale_reason}.`
+    build.textContent = 'Rebuild'
+  } else if (!info.usable) {
+    status.className = 'banner banner-error'
+    status.textContent = 'Installed but not working. Rebuilding should fix it.'
+    build.textContent = 'Repair'
+  } else {
+    status.className = 'banner banner-info'
+    status.textContent = 'Ready.'
+    build.textContent = 'Rebuild'
+  }
+  build.hidden = false
+}
+
+const runtime_build = async () => {
+  const build = $('btn_runtime_build')
+  const status = $('runtime_status')
+  $('runtime_error').hidden = true
+
+  build.disabled = true
+  status.className = 'banner banner-info'
+  status.textContent = 'Setting up…'
+
+  const result = await api.setup_python_env()
+  build.disabled = false
+
+  if (!result.ok) {
+    $('runtime_error').textContent = result.error
+    $('runtime_error').hidden = false
+    return
+  }
+  await refresh_runtime_modal()
+}
+
+const runtime_remove = async () => {
+  const result = await api.remove_python_env()
+  if (!result.ok) {
+    $('runtime_error').textContent = result.error
+    $('runtime_error').hidden = false
+    return
+  }
+  await refresh_runtime_modal()
+}
+
 const setup_python_env = async () => {
   const button = $('btn_python_setup')
   const status = $('cgm_python_status')
@@ -1557,6 +1652,22 @@ const wire_events = () => {
   $('btn_cgm_save_table').addEventListener('click', save_signature_table)
   $('btn_python_setup').addEventListener('click', setup_python_env)
 
+  $('btn_runtime_close').addEventListener('click', () => { $('runtime_modal').hidden = true })
+  $('btn_runtime_build').addEventListener('click', runtime_build)
+  $('btn_runtime_remove').addEventListener('click', runtime_remove)
+  $('btn_runtime_remove_legacy').addEventListener('click', async () => {
+    const result = await api.remove_legacy_python_env()
+    if (!result.ok) {
+      $('runtime_error').textContent = result.error
+      $('runtime_error').hidden = false
+      return
+    }
+    await refresh_runtime_modal()
+  })
+  $('runtime_modal').addEventListener('click', (event) => {
+    if (event.target === $('runtime_modal')) $('runtime_modal').hidden = true
+  })
+
   // Setup takes a minute or two and downloads a lot; silence would read as a hang
   api.on_python_setup_progress((progress) => {
     const status = $('cgm_python_status')
@@ -1570,6 +1681,7 @@ const wire_events = () => {
   api.on_menu_action((action) => {
     if (action === 'open_local' || action === 'open_remote') open_remote_modal()
     if (action === 'close_dataset') show_start()
+    if (action === 'runtime_settings') open_runtime_modal()
   })
 
   // Channel changes arrive from every window; react only to our own scope.
