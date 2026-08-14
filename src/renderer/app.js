@@ -1717,6 +1717,7 @@ const handle_resize = () => {
 
 const wire_events = () => {
   $('btn_open_dataset').addEventListener('click', open_remote_modal)
+  $('btn_make_degafiles').addEventListener('click', open_convert_modal)
   $('btn_back').addEventListener('click', show_start)
 
   $('remote_url').addEventListener('input', queue_validation)

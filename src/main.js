@@ -833,19 +833,13 @@ app.whenReady().then(async () => {
   // uv is shipped as an extraResource so it sits outside app.asar -- an
   // executable cannot be run from inside an archive. In a dev checkout it is
   // in vendor/, populated by `npm run fetch:uv`.
-  const uv_dir = app.isPackaged
-    ? path.join(process.resourcesPath, 'uv')
-    : path.join(__dirname, '..', 'vendor', 'uv')
-  const uv_bin = process.platform === 'win32' ? 'uv.exe' : 'uv'
-  const uv_path = path.join(uv_dir, `${process.platform}-${process.arch}`, uv_bin)
-
-  try {
-    await fsp.access(uv_path)
-    python_worker.set_uv_path(uv_path)
-    console.log(`[uv] bundled: ${uv_path}`)
-  } catch {
-    console.log(`[uv] not bundled at ${uv_path}; will look on PATH`)
-  }
+  // uv is downloaded on first setup and cached here. A dev checkout that ran
+  // `npm run fetch:uv` has one in vendor/, which is used in preference so
+  // development does not re-download it.
+  python_worker.set_uv_dirs({
+    install_dir: path.join(python_root, 'uv'),
+    vendor_dir: app.isPackaged ? null : path.join(__dirname, '..', 'vendor', 'uv'),
+  })
 
   // Only a development build may fall back to a system Python. A packaged one
   // provisions its own, which is what makes a fresh machine work.

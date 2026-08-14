@@ -17,15 +17,6 @@ module.exports = {
     // Extension-less on purpose: packager appends .icns on macOS and .ico on
     // Windows. Both are generated from assets/icon.svg -- see assets/README.md.
     icon: 'assets/icon',
-    // uv ships alongside the app so provisioning a Python environment needs
-    // neither Python nor uv already installed. extraResource rather than a
-    // normal file because it must land OUTSIDE app.asar -- an executable
-    // cannot be run from inside an asar archive.
-    //
-    // Fetched at build time by `npm run fetch:uv` (see scripts/fetch_uv.mjs);
-    // vendor/uv is gitignored, so a release always contains a pinned uv rather
-    // than whatever happened to be current.
-    extraResource: ['vendor/uv'],
     // v0.1.0 ships unsigned. Add osxSign/osxNotarize here once Apple
     // developer credentials are available -- see README "Code signing".
   },

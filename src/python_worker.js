@@ -17,6 +17,7 @@
 // request, into app-controlled storage.
 
 const { spawn } = require('node:child_process')
+const uv_provision = require('./uv_provision')
 const crypto = require('node:crypto')
 const path = require('node:path')
 const fsp = require('node:fs/promises')
@@ -54,6 +55,15 @@ const set_allow_system_python = (allow) => { allow_system_python = Boolean(allow
 // lookup only when the bundled copy is absent, which is the case in a dev
 // checkout that has not run `npm run fetch:uv`.
 const uv_command = () => uv_path_override || 'uv'
+
+// Where a downloaded uv is cached, and where a dev checkout may have fetched
+// one. Both set by main.
+let uv_install_dir = null
+let uv_vendor_dir = null
+const set_uv_dirs = ({ install_dir, vendor_dir }) => {
+  uv_install_dir = install_dir || uv_install_dir
+  uv_vendor_dir = vendor_dir || uv_vendor_dir
+}
 
 // uv needs to be told to use its own Python rather than one it finds on the
 // system, and where to put it.
@@ -283,18 +293,26 @@ const discover = async () => {
 const setup_managed_env = async (on_progress = () => {}) => {
   if (!managed_root) return { ok: false, error: 'No location set for the managed environment' }
 
+  // uv is fetched here rather than shipped: bundling it would add ~88 MB to
+  // every download for the majority who only view, and buy nothing, since this
+  // step already needs the network for Python and the packages.
+  const obtained = await uv_provision.ensure_uv({
+    install_dir: uv_install_dir,
+    vendor_dir: uv_vendor_dir,
+    on_progress,
+  })
+  if (!obtained.ok) return { ok: false, reason: obtained.reason || 'no_uv', error: obtained.error }
+  uv_path_override = obtained.path
+
   const uv = uv_command()
   const env = uv_env()
 
-  const version = await run_capture(uv, ['--version'], { timeout_ms: 15000, env })
+  const version = await run_capture(uv, ['--version'], { timeout_ms: 30000, env })
   if (!version.ok) {
     return {
       ok: false,
       reason: 'no_uv',
-      error:
-        uv_path_override
-          ? `The bundled uv could not be run (${uv_path_override}): ${version.stderr || version.error}`
-          : 'uv was not found. In a dev checkout run `npm run fetch:uv`; a packaged build ships its own.',
+      error: `uv could not be run (${uv}): ${version.stderr || version.error}`,
     }
   }
 
@@ -596,6 +614,8 @@ const status = () => ({
 })
 
 module.exports = {
+  set_uv_dirs,
+  UV_VERSION: uv_provision.UV_VERSION,
   set_legacy_root,
   legacy_env_status,
   remove_legacy_env,
