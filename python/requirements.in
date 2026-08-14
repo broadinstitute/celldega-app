@@ -1,1 +1,9 @@
-celldega==0.24.1
+# celldega[pre] adds pyvips, which celldega.pre needs for image pyramids.
+# Without it preprocessing runs seven stages and then fails at "Image pyramid"
+# with pyvips being None.
+celldega[pre]==0.24.1
+
+# pyvips is only a binding; it needs the native libvips library, which pip
+# cannot provide. pyvips-binary ships a prebuilt libvips so image tiling works
+# without Homebrew or apt.
+pyvips-binary

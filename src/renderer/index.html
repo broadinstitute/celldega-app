@@ -143,6 +143,17 @@
           <div class="component-actions"></div>
         </div>
 
+        <div class="component-row" id="card_raw_row" hidden>
+          <div class="component-name">Raw data</div>
+          <div class="component-body">
+            <div class="component-detail" id="card_raw_detail">—</div>
+            <div class="component-note">
+              The instrument output these DegaFiles were converted from.
+            </div>
+          </div>
+          <div class="component-actions"></div>
+        </div>
+
         <div class="component-row">
           <div class="component-name">AnnData</div>
           <div class="component-body">
@@ -267,6 +278,69 @@
       </div>
     </div>
   </section>
+
+  <!-- Convert raw instrument output into DegaFiles -->
+  <div class="modal-backdrop" id="convert_modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="convert_modal_title">
+      <h3 id="convert_modal_title">Convert raw data to DegaFiles</h3>
+      <p class="modal-note">
+        Turns a Xenium or MERSCOPE output folder into the tiled format Celldega
+        renders. This runs locally and uses Python.
+      </p>
+
+      <label class="field">
+        <span>Raw data folder</span>
+        <div class="field-row">
+          <input type="text" id="convert_source" spellcheck="false" autocomplete="off"
+                 placeholder="/path/to/…_outs">
+          <button class="btn btn-ghost" id="btn_convert_browse_source" type="button">Browse…</button>
+        </div>
+        <div class="field-status" id="convert_source_status"></div>
+      </label>
+
+      <label class="field">
+        <span>Write DegaFiles to</span>
+        <div class="field-row">
+          <input type="text" id="convert_output" spellcheck="false" autocomplete="off"
+                 placeholder="chosen automatically, beside the raw data">
+          <button class="btn btn-ghost" id="btn_convert_browse_output" type="button">Browse…</button>
+        </div>
+      </label>
+
+      <div class="field-row">
+        <label class="field" style="flex:1">
+          <span>Tile size</span>
+          <select id="convert_tile_size">
+            <option value="100">100</option>
+            <option value="250" selected>250</option>
+            <option value="500">500</option>
+          </select>
+        </label>
+        <label class="field" style="flex:1">
+          <span>Image channels</span>
+          <select id="convert_layers">
+            <option value="all" selected>All channels</option>
+            <option value="dapi">DAPI only</option>
+          </select>
+        </label>
+      </div>
+
+      <div id="convert_progress" hidden>
+        <div class="field-status" id="convert_stage">Starting…</div>
+        <div class="progress-track"><div class="progress-bar" id="convert_bar"></div></div>
+        <ul class="stage-list" id="convert_stages"></ul>
+      </div>
+
+      <div id="convert_error" class="banner banner-error" hidden></div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn_convert_close">Close</button>
+        <button class="btn btn-ghost" id="btn_convert_cancel" hidden>Cancel job</button>
+        <button class="btn btn-primary" id="btn_convert_start" disabled>Convert</button>
+        <button class="btn btn-primary" id="btn_convert_open" hidden>Open dataset</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Analysis runtime: what is installed, and how to rebuild or remove it -->
   <div class="modal-backdrop" id="runtime_modal" hidden>

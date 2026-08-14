@@ -50,6 +50,18 @@ contextBridge.exposeInMainWorld('celldega_app', {
   open_yearbook: (options) => ipcRenderer.invoke('open_yearbook', options),
   save_signature_table: (options) => ipcRenderer.invoke('save_signature_table', options),
 
+  // Converting raw instrument output into DegaFiles. A long job, so it runs
+  // as its own process and reports progress and completion through job_event.
+  pick_raw_folder: () => ipcRenderer.invoke('pick_raw_folder'),
+  pick_output_folder: (default_path) => ipcRenderer.invoke('pick_output_folder', default_path),
+  inspect_raw_dataset: (dir_path) => ipcRenderer.invoke('inspect_raw_dataset', dir_path),
+  convert_to_degafiles: (options) => ipcRenderer.invoke('convert_to_degafiles', options),
+  cancel_job: (job_id) => ipcRenderer.invoke('cancel_job', job_id),
+  job_status: (job_id) => ipcRenderer.invoke('job_status', job_id),
+  on_job_event: (handler) => {
+    ipcRenderer.on('job_event', (_event, job) => handler(job))
+  },
+
   pick_dataset_folder: () => ipcRenderer.invoke('pick_dataset_folder'),
   validate_local_path: (dir_path) => ipcRenderer.invoke('validate_local_path', dir_path),
   pick_anndata_file: () => ipcRenderer.invoke('pick_anndata_file'),

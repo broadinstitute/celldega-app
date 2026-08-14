@@ -41,6 +41,8 @@ const state = {
   yearbook_spec: null,
   // { path, info, column, meta, stats } once an .h5ad is attached
   anndata: null,
+  // Where these DegaFiles were converted from, when the app produced them
+  raw_source: null,
   // Which scope this window's shared state belongs to. Windows sharing a scope
   // are linked; windows over different data are not. Today this is the dataset,
   // later it may be a cohort spanning several datasets -- so it is treated as an
@@ -336,6 +338,10 @@ const show_dataset_card = async (entry) => {
   $('card_subtitle').textContent = entry.kind === 'local' ? 'Local dataset' : 'Remote dataset'
   $('card_dega_detail').textContent = entry.detail
   $('card_dega_note').textContent = entry.kind === 'local' ? 'Folder on this machine' : 'Streamed over HTTP'
+
+  // Provenance, when the DegaFiles were produced by the app rather than found
+  $('card_raw_row').hidden = !entry.raw_source
+  if (entry.raw_source) $('card_raw_detail').textContent = entry.raw_source
 
   await refresh_card_anndata()
 }
@@ -768,6 +774,128 @@ const refresh_python_status = async () => {
   status.textContent = py.error
   setup.hidden = false
   generate.disabled = true
+}
+
+// ------------------------------------------------- convert to DegaFiles
+
+const convert_state = { job_id: null, output: null, source: null, technology: null, stages: [] }
+
+const open_convert_modal = () => {
+  convert_state.job_id = null
+  convert_state.output = null
+  $('convert_error').hidden = true
+  $('convert_progress').hidden = true
+  $('btn_convert_cancel').hidden = true
+  $('btn_convert_open').hidden = true
+  $('btn_convert_start').hidden = false
+  $('convert_modal').hidden = false
+  validate_convert_source()
+}
+
+const validate_convert_source = async () => {
+  const raw = $('convert_source').value.trim()
+  const start = $('btn_convert_start')
+  start.disabled = true
+
+  if (!raw) return set_status('convert_source_status', '')
+
+  set_status('convert_source_status', 'Checking…', 'busy')
+  const info = await api.inspect_raw_dataset(raw)
+  if (!info.ok) return set_status('convert_source_status', info.error, 'bad')
+
+  convert_state.source = raw
+  convert_state.technology = info.technology
+  set_status(
+    'convert_source_status',
+    `${info.technology} · ${info.sample}${info.has_morphology ? ' · morphology image' : ''}`,
+    'ok'
+  )
+  if (!$('convert_output').value) $('convert_output').value = info.suggested_output
+  start.disabled = false
+}
+
+const render_convert_stages = (current) => {
+  if (!convert_state.stages.includes(current)) convert_state.stages.push(current)
+  const list = $('convert_stages')
+  list.innerHTML = ''
+  convert_state.stages.forEach((stage, index) => {
+    const li = document.createElement('li')
+    li.textContent = stage
+    li.className = index === convert_state.stages.length - 1 ? 'active' : 'done'
+    list.appendChild(li)
+  })
+  list.scrollTop = list.scrollHeight
+}
+
+const start_conversion = async () => {
+  $('convert_error').hidden = true
+  convert_state.stages = []
+  $('convert_stages').innerHTML = ''
+  $('convert_bar').style.width = '0%'
+  $('convert_stage').textContent = 'Starting…'
+  $('convert_progress').hidden = false
+  $('btn_convert_start').hidden = true
+  $('btn_convert_cancel').hidden = false
+
+  const result = await api.convert_to_degafiles({
+    source: $('convert_source').value.trim(),
+    output: $('convert_output').value.trim(),
+    tile_size: Number($('convert_tile_size').value),
+    image_tile_layer: $('convert_layers').value,
+  })
+
+  if (!result.ok) {
+    $('convert_error').textContent =
+      result.reason === 'not_found' || result.reason === 'missing_packages'
+        ? `${result.error} — set up the analysis runtime from File > Analysis Runtime.`
+        : result.error
+    $('convert_error').hidden = false
+    $('btn_convert_start').hidden = false
+    $('btn_convert_cancel').hidden = true
+    return
+  }
+  convert_state.job_id = result.job_id
+}
+
+const on_job_event = (job) => {
+  if (!convert_state.job_id || job.job_id !== convert_state.job_id) return
+
+  if (job.stage) {
+    $('convert_stage').textContent = job.stage
+    render_convert_stages(job.stage)
+  }
+  if (typeof job.fraction === 'number') {
+    $('convert_bar').style.width = `${Math.round(job.fraction * 100)}%`
+  }
+
+  if (job.status === 'complete') {
+    convert_state.output = job.output
+    $('convert_stage').textContent = 'Finished'
+    $('btn_convert_cancel').hidden = true
+    $('btn_convert_open').hidden = false
+  } else if (job.status === 'failed') {
+    $('convert_error').textContent = job.error || 'Conversion failed'
+    $('convert_error').hidden = false
+    $('btn_convert_cancel').hidden = true
+    $('btn_convert_start').hidden = false
+  } else if (job.status === 'cancelled') {
+    $('convert_stage').textContent = 'Cancelled'
+    $('btn_convert_cancel').hidden = true
+    $('btn_convert_start').hidden = false
+  }
+}
+
+const open_converted_dataset = async () => {
+  if (!convert_state.output) return
+  $('convert_modal').hidden = true
+  await api.open_landscape({
+    detail: convert_state.output,
+    kind: 'local',
+    label: convert_state.output.split('/').pop(),
+    scope_id: convert_state.output,
+    // Where it came from, so the card can show provenance
+    raw_source: convert_state.source,
+  })
 }
 
 // ------------------------------------------------------ runtime settings
@@ -1245,6 +1373,9 @@ const record_recent = (source) => {
     // -- and it is what makes a remembered dataset come back already coloured.
     anndata_path: state.anndata ? state.anndata.path : null,
     anndata_column: state.anndata ? state.anndata.column : null,
+    // A path, like the AnnData one, so it is safe to persist and gives the
+    // dataset card provenance after a restart
+    raw_source: state.raw_source || null,
   }).then(render_recents).catch(() => {})
 }
 
@@ -1652,6 +1783,29 @@ const wire_events = () => {
   $('btn_cgm_save_table').addEventListener('click', save_signature_table)
   $('btn_python_setup').addEventListener('click', setup_python_env)
 
+  $('btn_convert_close').addEventListener('click', () => { $('convert_modal').hidden = true })
+  $('btn_convert_browse_source').addEventListener('click', async () => {
+    const picked = await api.pick_raw_folder()
+    if (!picked.ok) return
+    $('convert_source').value = picked.path
+    $('convert_output').value = ''
+    await validate_convert_source()
+  })
+  $('btn_convert_browse_output').addEventListener('click', async () => {
+    const picked = await api.pick_output_folder($('convert_output').value)
+    if (picked.ok) $('convert_output').value = picked.path
+  })
+  $('convert_source').addEventListener('input', () => {
+    clearTimeout(form.timer)
+    form.timer = setTimeout(validate_convert_source, 450)
+  })
+  $('btn_convert_start').addEventListener('click', start_conversion)
+  $('btn_convert_cancel').addEventListener('click', () => {
+    if (convert_state.job_id) api.cancel_job(convert_state.job_id)
+  })
+  $('btn_convert_open').addEventListener('click', open_converted_dataset)
+  api.on_job_event(on_job_event)
+
   $('btn_runtime_close').addEventListener('click', () => { $('runtime_modal').hidden = true })
   $('btn_runtime_build').addEventListener('click', runtime_build)
   $('btn_runtime_remove').addEventListener('click', runtime_remove)
@@ -1682,6 +1836,7 @@ const wire_events = () => {
     if (action === 'open_local' || action === 'open_remote') open_remote_modal()
     if (action === 'close_dataset') show_start()
     if (action === 'runtime_settings') open_runtime_modal()
+    if (action === 'convert_degafiles') open_convert_modal()
   })
 
   // Channel changes arrive from every window; react only to our own scope.
@@ -1739,6 +1894,7 @@ const init = async () => {
   }
   if (own_state && own_state.view_type === 'landscape' && own_state.landscape) {
     const spec = own_state.landscape
+    state.raw_source = spec.raw_source || null
     // reopen_recent owns attaching the AnnData -- it clears state.anndata first,
     // so preparing it here would just be undone.
     await reopen_recent({

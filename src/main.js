@@ -14,6 +14,7 @@ const { start_server } = require('./local_server')
 const obs_app = require('./obs_app')
 const anndata_reader = require('./anndata_reader')
 const python_worker = require('./python_worker')
+const analysis_jobs = require('./analysis_jobs')
 const local_source = require('./data_sources/local_source')
 const http_source = require('./data_sources/http_source')
 const authenticated_source = require('./data_sources/authenticated_source')
@@ -242,6 +243,11 @@ const build_menu = () => {
           accelerator: 'CmdOrCtrl+W',
           click: () => send_menu_action('close_dataset'),
         },
+        {
+          label: 'Convert Raw Data to DegaFiles…',
+          click: () => send_menu_action('convert_degafiles'),
+        },
+        { type: 'separator' },
         {
           label: 'Analysis Runtime…',
           click: () => send_menu_action('runtime_settings'),
@@ -480,6 +486,87 @@ const register_ipc = () => {
     }
   })
 
+  // ---- DegaFiles conversion --------------------------------------------
+
+  // Does this folder look like raw instrument output we can convert?
+  // Answering before the job starts means a mistyped path fails in a second
+  // rather than forty minutes in.
+  ipcMain.handle('inspect_raw_dataset', async (_event, dir_path) => {
+    if (!dir_path) return { ok: false, error: 'No folder given' }
+
+    let entries
+    try {
+      entries = await fsp.readdir(dir_path)
+    } catch (err) {
+      return { ok: false, error: `Could not read that folder: ${err.message}` }
+    }
+
+    const names = new Set(entries)
+    // Same signals celldega.pre._determine_technology uses
+    const is_xenium = names.has('experiment.xenium') || names.has('transcripts.parquet')
+    const is_merscope =
+      entries.some((n) => n.startsWith('detected_transcripts')) ||
+      entries.some((n) => n.startsWith('cell_boundaries') && n.endsWith('.hdf5'))
+
+    if (!is_xenium && !is_merscope) {
+      return {
+        ok: false,
+        error: 'Not a recognised Xenium or MERSCOPE output folder',
+      }
+    }
+
+    const technology = is_xenium ? 'Xenium' : 'MERSCOPE'
+    const sample = path.basename(dir_path.replace(/[/\\]+$/, ''))
+    return {
+      ok: true,
+      technology,
+      sample,
+      // Beside the source by convention, so converted output sits with the data
+      // it came from rather than somewhere only the app knows about.
+      suggested_output: path.join(path.dirname(dir_path.replace(/[/\\]+$/, '')), `${sample}_landscape_files`),
+      has_morphology: names.has('morphology.ome.tif') || names.has('morphology_focus'),
+    }
+  })
+
+  ipcMain.handle('pick_raw_folder', async () => {
+    const result = await dialog.showOpenDialog(focused_window(), {
+      title: 'Choose raw Xenium or MERSCOPE output',
+      properties: ['openDirectory'],
+      buttonLabel: 'Choose',
+    })
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
+    return { ok: true, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('pick_output_folder', async (_event, default_path) => {
+    const result = await dialog.showSaveDialog(focused_window(), {
+      title: 'Where should the DegaFiles go?',
+      defaultPath: default_path || undefined,
+      buttonLabel: 'Choose',
+    })
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+    return { ok: true, path: result.filePath }
+  })
+
+  ipcMain.handle('convert_to_degafiles', async (_event, options) => {
+    const { source, output, tile_size = 250, image_tile_layer = 'all' } = options || {}
+    if (!source || !output) return { ok: false, error: 'A source and an output folder are required' }
+
+    const found = await python_worker.discover()
+    if (!found.ok) return { ok: false, error: found.error, reason: found.reason }
+
+    return analysis_jobs.run({
+      operation: 'preprocess',
+      python: found.command,
+      script: path.join(__dirname, '..', 'python', 'preprocess.py'),
+      output_dir: output,
+      request: { source, output, tile_size, image_tile_layer },
+    })
+  })
+
+  ipcMain.handle('cancel_job', async (_event, job_id) => analysis_jobs.cancel(job_id))
+  ipcMain.handle('job_status', async (_event, job_id) => analysis_jobs.status(job_id))
+
   ipcMain.handle('runtime_info', async () => {
     const [managed, staleness, size, legacy] = await Promise.all([
       python_worker.managed_env_status(),
@@ -626,7 +713,7 @@ const register_ipc = () => {
   // the card visible underneath, which is how a Landscape ended up rendering
   // into half the page.
   ipcMain.handle('open_landscape', async (_event, options) => {
-    const { detail, kind, label, scope_id, anndata_path, anndata_column } = options || {}
+    const { detail, kind, label, scope_id, anndata_path, anndata_column, raw_source } = options || {}
     if (!detail) return { ok: false, error: 'No dataset given' }
 
     const win = create_window()
@@ -635,7 +722,7 @@ const register_ipc = () => {
       view_type: 'landscape',
       scope_id: scope_id || null,
       label: label || null,
-      landscape: { detail, kind, anndata_path, anndata_column },
+      landscape: { detail, kind, anndata_path, anndata_column, raw_source },
     })
     return { ok: true, window_id: win.__celldega_window_id }
   })
@@ -764,6 +851,15 @@ app.whenReady().then(async () => {
   // provisions its own, which is what makes a fresh machine work.
   python_worker.set_allow_system_python(!app.isPackaged)
 
+  // Long jobs write a request, a log and their output under here, so a job
+  // directory is a complete record of what was asked for and what happened.
+  analysis_jobs.set_jobs_root(path.join(app.getPath('userData'), 'jobs'))
+  analysis_jobs.set_listener((event) => {
+    for (const win of windows.values()) {
+      if (!win.isDestroyed()) win.webContents.send('job_event', event)
+    }
+  })
+
   server = await start_server({
     renderer_root: RENDERER_ROOT,
     celldega_entry: resolve_celldega_entry(),
@@ -794,4 +890,5 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   if (server) server.close()
   python_worker.stop()
+  analysis_jobs.stop_all()
 })
