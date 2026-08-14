@@ -5,3 +5,6 @@ out/
 
 # local machine-specific Claude Code settings
 .claude/settings.local.json
+
+# fetched at build time by scripts/fetch_uv.mjs
+vendor/uv/

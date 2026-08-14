@@ -8,9 +8,11 @@
   "author": "The Broad Institute, Inc.",
   "scripts": {
     "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "dev": "electron-forge start --inspect-electron"
+    "package": "npm run fetch:uv && electron-forge package",
+    "make": "npm run fetch:uv && electron-forge make",
+    "dev": "electron-forge start --inspect-electron",
+    "fetch:uv": "node scripts/fetch_uv.mjs",
+    "fetch:uv:mac": "node scripts/fetch_uv.mjs --mac"
   },
   "dependencies": {
     "aws4fetch": "1.0.20",

@@ -704,7 +704,30 @@ app.whenReady().then(async () => {
 
   // A managed Python lives beside the app's other data, not in the bundle, so
   // it survives upgrades and can be deleted without touching the install.
-  python_worker.set_managed_root(path.join(app.getPath('userData'), 'python_env'))
+  const python_root = path.join(app.getPath('userData'), 'python')
+  python_worker.set_managed_root(path.join(python_root, 'env'))
+  python_worker.set_python_install_dir(path.join(python_root, 'runtime'))
+
+  // uv is shipped as an extraResource so it sits outside app.asar -- an
+  // executable cannot be run from inside an archive. In a dev checkout it is
+  // in vendor/, populated by `npm run fetch:uv`.
+  const uv_dir = app.isPackaged
+    ? path.join(process.resourcesPath, 'uv')
+    : path.join(__dirname, '..', 'vendor', 'uv')
+  const uv_bin = process.platform === 'win32' ? 'uv.exe' : 'uv'
+  const uv_path = path.join(uv_dir, `${process.platform}-${process.arch}`, uv_bin)
+
+  try {
+    await fsp.access(uv_path)
+    python_worker.set_uv_path(uv_path)
+    console.log(`[uv] bundled: ${uv_path}`)
+  } catch {
+    console.log(`[uv] not bundled at ${uv_path}; will look on PATH`)
+  }
+
+  // Only a development build may fall back to a system Python. A packaged one
+  // provisions its own, which is what makes a fresh machine work.
+  python_worker.set_allow_system_python(!app.isPackaged)
 
   server = await start_server({
     renderer_root: RENDERER_ROOT,

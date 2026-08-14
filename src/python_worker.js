@@ -5,17 +5,54 @@
 // user who only looks at Landscapes never pays for it and never needs Python
 // installed at all.
 //
-// We DISCOVER a Python rather than bundling one. A bundled scientific stack
-// would add ~500 MB to a 240 MB app, and every native .so in it would need
-// signing for notarization. Provisioning one with `uv` when none is found is
-// the planned fallback (see future/python_worker.md) -- deliberately not built
-// until the protocol itself is proven against a Python that already exists.
+// The app ships uv and PROVISIONS its own Python; it does not depend on the
+// user having either. A packaged build never falls back to a system Python --
+// that is a development convenience only -- so a release always computes
+// against the celldega version it pins rather than whatever a machine happens
+// to have.
+//
+// The scientific stack itself is still not bundled. It is ~1.2 GB installed,
+// every native library in it would need signing for notarization, and the
+// majority of users only ever view Landscapes. So it is downloaded once, on
+// request, into app-controlled storage.
 
 const { spawn } = require('node:child_process')
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
 const WORKER_SCRIPT = path.join(__dirname, '..', 'python', 'worker.py')
+
+// The CPython uv provisions for us. Pinned so a given app release always builds
+// the same environment.
+const MANAGED_PYTHON_VERSION = '3.12'
+
+// Where the bundled uv lives, and where uv should put the Python it downloads.
+// Both are set by main, which owns these paths.
+let uv_path_override = null
+let python_install_dir = null
+
+const set_uv_path = (p) => { uv_path_override = p }
+const set_python_install_dir = (p) => { python_install_dir = p }
+
+// System Python is only ever considered in development. A packaged app
+// provisions its own, so that a fresh machine needs neither Python nor uv --
+// and so that a release cannot silently compute against whatever version a
+// user happens to have.
+let allow_system_python = true
+const set_allow_system_python = (allow) => { allow_system_python = Boolean(allow) }
+
+// uv is shipped with the app rather than found on PATH. Falls back to a PATH
+// lookup only when the bundled copy is absent, which is the case in a dev
+// checkout that has not run `npm run fetch:uv`.
+const uv_command = () => uv_path_override || 'uv'
+
+// uv needs to be told to use its own Python rather than one it finds on the
+// system, and where to put it.
+const uv_env = () => ({
+  ...process.env,
+  ...(python_install_dir ? { UV_PYTHON_INSTALL_DIR: python_install_dir } : {}),
+  UV_PYTHON_PREFERENCE: 'only-managed',
+})
 
 // Pin the Python celldega to the same version as the pinned celldega.js. They
 // share a version stream (PyPI and npm are both 0.24.1), and a managed
@@ -65,15 +102,17 @@ const candidate_commands = () => {
   // Then the managed environment, whose celldega version we actually control.
   const managed = managed_python()
   if (managed) candidates.push(managed)
-  candidates.push('python3', 'python')
+  // System Python is a development convenience only. A packaged app provisions
+  // its own, so a release never depends on what a user happens to have.
+  if (allow_system_python) candidates.push('python3', 'python')
   return candidates
 }
 
-const run_capture = (command, args, { timeout_ms = 15000, input = null } = {}) =>
+const run_capture = (command, args, { timeout_ms = 15000, input = null, env = null } = {}) =>
   new Promise((resolve) => {
     let child
     try {
-      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] })
+      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], ...(env ? { env } : {}) })
     } catch (err) {
       return resolve({ ok: false, error: err.message })
     }
@@ -152,7 +191,7 @@ const discover = async () => {
   // environment whose celldega version we actually pin -- which defeats the
   // point of having a managed environment at all.
   const commands = candidate_commands()
-  const uv = await run_capture('uv', ['python', 'find'], { timeout_ms: 8000 })
+  const uv = await run_capture(uv_command(), ['python', 'find'], { timeout_ms: 8000, env: uv_env() })
   if (uv.ok && uv.stdout.trim()) commands.push(uv.stdout.trim())
 
   const tried = []
@@ -200,18 +239,45 @@ const discover = async () => {
 const setup_managed_env = async (on_progress = () => {}) => {
   if (!managed_root) return { ok: false, error: 'No location set for the managed environment' }
 
-  const uv = await run_capture('uv', ['--version'], { timeout_ms: 8000 })
-  if (!uv.ok) {
+  const uv = uv_command()
+  const env = uv_env()
+
+  const version = await run_capture(uv, ['--version'], { timeout_ms: 15000, env })
+  if (!version.ok) {
     return {
       ok: false,
       reason: 'no_uv',
       error:
-        'uv is not installed. Install it from https://docs.astral.sh/uv/ and try again, or point CELLDEGA_PYTHON at a Python that already has celldega.',
+        uv_path_override
+          ? `The bundled uv could not be run (${uv_path_override}): ${version.stderr || version.error}`
+          : 'uv was not found. In a dev checkout run `npm run fetch:uv`; a packaged build ships its own.',
+    }
+  }
+
+  // Install a CPython that we control. UV_PYTHON_PREFERENCE=only-managed keeps
+  // uv from quietly satisfying this with a system Python, which is the whole
+  // point -- a fresh machine has no Python at all.
+  on_progress({
+    step: 'python',
+    message: `Downloading Python ${MANAGED_PYTHON_VERSION}…`,
+  })
+  const py = await run_capture(uv, ['python', 'install', MANAGED_PYTHON_VERSION], {
+    timeout_ms: 900000,
+    env,
+  })
+  if (!py.ok) {
+    return {
+      ok: false,
+      error: `Could not install Python ${MANAGED_PYTHON_VERSION}: ${(py.stderr || py.error || '').slice(-600)}`,
     }
   }
 
   on_progress({ step: 'venv', message: 'Creating environment…' })
-  const venv = await run_capture('uv', ['venv', managed_root], { timeout_ms: 180000 })
+  const venv = await run_capture(
+    uv,
+    ['venv', managed_root, '--python', MANAGED_PYTHON_VERSION],
+    { timeout_ms: 300000, env }
+  )
   if (!venv.ok) {
     return { ok: false, error: `Could not create the environment: ${venv.stderr || venv.error}` }
   }
@@ -222,9 +288,9 @@ const setup_managed_env = async (on_progress = () => {}) => {
   // celldega pulls numpy/scipy/pandas/anndata, so this one install covers
   // everything the worker needs.
   const install = await run_capture(
-    'uv',
+    uv,
     ['pip', 'install', '--python', managed_python(), spec],
-    { timeout_ms: 1800000 }
+    { timeout_ms: 1800000, env }
   )
   if (!install.ok) {
     return { ok: false, error: `Could not install ${spec}: ${(install.stderr || install.error || '').slice(-600)}` }
@@ -358,6 +424,10 @@ const status = () => ({
 })
 
 module.exports = {
+  set_uv_path,
+  set_python_install_dir,
+  set_allow_system_python,
+  MANAGED_PYTHON_VERSION,
   discover,
   request,
   stop,
