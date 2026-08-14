@@ -10,6 +10,46 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-14
+
+Make DegaFiles from raw instrument data, and a Python runtime the app manages
+itself. **Viewing still requires nothing** — no Python, no uv, no network beyond
+the dataset.
+
+### Added
+
+- **Make DegaFiles.** Convert a raw Xenium or MERSCOPE output folder into the
+  tiled format Celldega renders, from a form on the start screen. The source is
+  validated before the job starts, output goes beside the raw data by default,
+  and progress is reported per component — cell metadata, image pyramid,
+  transcript tiles — from real stage transitions rather than an invented
+  percentage. Cancellable. Tested on a 5.5 GB Xenium run, which produced 219 MB
+  of DegaFiles.
+- The raw folder appears as a **Raw data** row on the dataset card, so a
+  converted dataset shows what it came from.
+- **The app provisions its own Python.** A machine with no Python, no uv and no
+  conda can now run analysis: uv is downloaded (pinned and checksum-verified),
+  which installs a pinned CPython and a pinned package set. Nothing is installed
+  until you ask for it.
+- **Reproducible environment.** All 167 packages are pinned in a lockfile
+  resolved at build time, so two people installing the same release get the same
+  versions.
+- **File → Analysis Runtime** shows what is installed, its size and location,
+  and offers Rebuild and Remove. Removing it leaves datasets, AnnData files and
+  generated results untouched.
+- An environment is now detected as **stale** after an app upgrade changes the
+  pinned set, rather than silently computing against packages the release was
+  never tested with.
+
+### Fixed
+
+- A conversion that is cancelled or fails no longer leaves a folder that
+  validates as a dataset and renders wrong.
+- Missing `pyvips` is reported before a long conversion starts, rather than as
+  an `AttributeError` two thirds of the way through it.
+- A packaged build no longer falls back to a system Python, so a release cannot
+  quietly compute against a different celldega version than it renders with.
+
 ## [0.5.1] — 2026-08-08
 
 ### Fixed

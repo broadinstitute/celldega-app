@@ -11,7 +11,22 @@ const path = require('node:path')
 
 const MANIFEST = 'landscape_parameters.json'
 
+// A conversion in progress writes .celldega_incomplete and removes it on
+// success, so a cancelled or failed run leaves a folder that does not validate
+// as a dataset rather than one that opens and renders wrong.
+const INCOMPLETE = '.celldega_incomplete'
+
+const is_incomplete = async (dir) => {
+  try {
+    await fsp.access(path.join(dir, INCOMPLETE))
+    return true
+  } catch {
+    return false
+  }
+}
+
 const has_manifest = async (dir) => {
+  if (await is_incomplete(dir)) return false
   try {
     await fsp.access(path.join(dir, MANIFEST))
     return true
@@ -73,4 +88,4 @@ const resolve = async (dir_path, server) => {
   }
 }
 
-module.exports = { resolve, find_dataset_dir }
+module.exports = { resolve, find_dataset_dir, is_incomplete }

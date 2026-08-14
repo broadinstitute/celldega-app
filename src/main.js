@@ -423,6 +423,12 @@ const register_ipc = () => {
     if (!dir_path) return { ok: false, error: 'No path given' }
     const dataset_dir = await local_source.find_dataset_dir(dir_path)
     if (!dataset_dir) {
+      if (await local_source.is_incomplete(dir_path)) {
+        return {
+          ok: false,
+          error: 'This folder is a conversion that did not finish. Re-run Make DegaFiles on it to continue.',
+        }
+      }
       return {
         ok: false,
         error: 'No landscape_parameters.json here or one level down',
@@ -554,6 +560,20 @@ const register_ipc = () => {
 
     const found = await python_worker.discover()
     if (!found.ok) return { ok: false, error: found.error, reason: found.reason }
+
+    // Image tiling needs pyvips, and celldega imports it in a try/except that
+    // leaves it None. Without this check a missing libvips surfaces as an
+    // AttributeError two thirds of the way through a long conversion rather
+    // than before it starts.
+    const has_pyvips = await python_worker.request('capabilities', {}, { timeout_ms: 120000 })
+    if (has_pyvips.ok && has_pyvips.result.packages && !has_pyvips.result.packages.pyvips) {
+      return {
+        ok: false,
+        reason: 'missing_packages',
+        error:
+          'This Python cannot build image tiles: pyvips is missing. Rebuild the analysis runtime from File > Analysis Runtime, which installs it.',
+      }
+    }
 
     return analysis_jobs.run({
       operation: 'preprocess',

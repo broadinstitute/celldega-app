@@ -109,6 +109,18 @@ def main():
 
     emit({"type": "started", "job_id": job_id, "protocol": PROTOCOL_VERSION})
 
+    # Mark the output as incomplete for as long as the job is running.
+    #
+    # A marker rather than writing to a temp directory and renaming: celldega.pre
+    # skips steps whose output already exists, so a job that failed part-way can
+    # be re-run and pick up where it stopped. Writing elsewhere would throw that
+    # away. The marker gives the same safety -- a cancelled or failed run leaves
+    # a folder that does not validate as a dataset -- while keeping resume.
+    os.makedirs(output, exist_ok=True)
+    incomplete = os.path.join(output, ".celldega_incomplete")
+    with open(incomplete, "w") as handle:
+        handle.write(json.dumps({"job_id": job_id, "source": source}))
+
     watcher = StageWatcher(job_id)
     original_stdout = sys.stdout
     sys.stdout = watcher
@@ -148,6 +160,12 @@ def main():
             }
         )
         return 1
+
+    # Only now is the directory a usable dataset
+    try:
+        os.remove(incomplete)
+    except OSError:
+        pass
 
     emit({"type": "progress", "job_id": job_id, "stage": "Done", "fraction": 1.0})
     emit({"type": "complete", "job_id": job_id, "output": output})

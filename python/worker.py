@@ -56,7 +56,7 @@ def method_capabilities(_params):
     """Which optional libraries are importable, so the app can disable features
     with a specific reason rather than failing when the user clicks."""
     found = {}
-    for name in ("numpy", "scipy", "pandas", "anndata", "h5py"):
+    for name in ("numpy", "scipy", "pandas", "anndata", "h5py", "pyvips"):
         try:
             module = __import__(name)
             found[name] = getattr(module, "__version__", "unknown")
