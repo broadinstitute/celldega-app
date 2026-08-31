@@ -4,12 +4,16 @@ A small desktop application for viewing **DegaFiles / Landscape** datasets with
 [Celldega.js](https://github.com/broadinstitute/celldega), on macOS, Windows,
 and Linux.
 
-Celldega-App is a **desktop shell around Celldega.js**. It does one thing:
+Celldega-App is a **desktop shell around Celldega.js**:
 
-> Open a local or remote Dega/Landscape dataset and display it with Celldega.js.
+> Open a local or remote DegaFiles / Landscape dataset and explore it — as a
+> Landscape, a Clustergram, or a Yearbook — with selections linked across
+> windows.
 
-No visualization logic is duplicated here — all rendering is Celldega.js. There
-is no Python in v0.1.0.
+No visualization logic is duplicated here — all rendering is Celldega.js.
+Viewing never needs Python; analysis (Clustergram signatures, converting raw
+Xenium/MERSCOPE output into DegaFiles) uses a Python runtime the app
+provisions for itself on request.
 
 ---
 
@@ -96,8 +100,9 @@ Windows. Once signed and notarized these prompts disappear for everyone — see
 tiles, cell metadata, and colouring by an AnnData annotation are all handled in
 JavaScript and WebAssembly.
 
-Python is used for exactly one thing today: computing cluster signatures for a
-**Clustergram**. Nothing is installed until you ask for one.
+Python is used for exactly two things today: computing cluster signatures for
+a **Clustergram**, and converting raw Xenium/MERSCOPE output into DegaFiles
+(**Make DegaFiles**). Nothing is installed until you ask for one of them.
 
 ### How the app finds a Python
 
@@ -106,7 +111,9 @@ In order of preference:
 1. **`CELLDEGA_PYTHON`** — an explicit override, for developing against a local
    celldega.py checkout
 2. **The app's managed environment**, if you have created one
-3. **`uv python find`**, then `python3` / `python` on your `PATH`
+3. **`uv python find`**, then `python3` / `python` on your `PATH` —
+   *development builds only*; a packaged release never falls back to a system
+   Python, so a release always computes against the celldega version it pins
 
 A Python is only used if it has `numpy`, `scipy`, `pandas`, `anndata` and
 `celldega`. If one is found but is missing packages, the app says so
@@ -115,22 +122,29 @@ than reporting no Python at all.
 
 ### The managed environment
 
-If nothing suitable is found, the app can create its own environment with
+If nothing suitable is found, the app creates its own environment with
 [uv](https://docs.astral.sh/uv/), installing **the same celldega version as the
-pinned celldega.js**, so the Python and JavaScript halves cannot drift apart.
+pinned celldega.js** from a fully pinned lockfile
+([python/requirements.lock](python/requirements.lock)), so the Python and
+JavaScript halves cannot drift apart — and two installs of the same app release
+always resolve identical package versions.
 
 ```
-location   ~/Library/Application Support/Celldega/python_env   (macOS)
-size       ~1.2 GB on disk
+location   ~/Library/Application Support/Celldega/python/   (macOS)
+size       ~1.3 GB on disk
 time       ~30 seconds, plus download
 ```
 
 That size is on disk only — it is **not** part of the app download, which stays
 around 240 MB. It is created on request, never at install time, and deleting
 the directory is a complete uninstall; the app will simply offer to recreate it.
+The app also detects a **stale** runtime — one built from a different pinned
+set than the running release expects — and offers a rebuild from
+`File → Analysis Runtime…`.
 
-`uv` must be installed for this. If it is not, the app says so and points at
-<https://docs.astral.sh/uv/>.
+`uv` itself is downloaded on demand (pinned version, checksum-verified) the
+first time you set up the runtime, and cached alongside it. You do not need uv
+installed.
 
 ### Using your own Python instead
 
@@ -165,7 +179,7 @@ If the app keeps showing an old icon after updating, macOS has cached it — run
 
 ### Trying it without any data
 
-The start screen lists five example datasets streamed from the
+The start screen lists example datasets streamed from the
 [Celldega gallery](https://broadinstitute.github.io/celldega/gallery/). Click
 one to confirm everything works — nothing local needed.
 
@@ -203,7 +217,7 @@ window reload with `Cmd/Ctrl+R`.
 | You changed | To see it |
 | --- | --- |
 | `src/renderer/*` (HTML, CSS, app.js) | `Cmd/Ctrl+R` in the window |
-| `src/main.js`, `src/preload.js`, `src/local_server.js`, `src/data_sources/*` | Restart `npm start` |
+| anything else in `src/` (main, preload, obs_app, server, workers) or `python/` | Restart `npm start` |
 
 `View → Toggle Developer Tools` opens the usual Chromium inspector. Renderer
 console output and load failures are also echoed to the terminal running
@@ -268,7 +282,7 @@ app works.
 
 ### Code signing
 
-v0.1.0 ships **unsigned**. On macOS, first launch therefore needs
+Releases currently ship **unsigned**. On macOS, first launch therefore needs
 right-click → Open (or *System Settings → Privacy & Security → Open Anyway*);
 Windows will show a SmartScreen warning. To sign, add `osxSign` / `osxNotarize`
 to `packagerConfig` in [forge.config.js](forge.config.js) and supply Apple
@@ -276,7 +290,48 @@ developer credentials.
 
 ---
 
-## How it works
+## Architecture
+
+```
+┌─ main process ────────────────────────────────────────────────────┐
+│  main.js         windows, menu, IPC, recents, session credentials │
+│  local_server.js loopback HTTP: renderer, bundle, mounts, proxy   │
+│  obs_app.js      cross-window state: windows + scoped channels    │
+│  anndata_reader  .h5ad obs categoricals (h5wasm)                  │
+│  python_worker   discover/provision Python, JSON-RPC daemon       │
+│  analysis_jobs   one process per long job, progress + cancel      │
+└──────────────┬────────────────────────────────────────────────────┘
+               │ preload.js (contextBridge; the renderer's only surface)
+┌──────────────┴────────────────────────────────────────────────────┐
+│  renderer (one per window)                                        │
+│  app.js: resolve a base URL, read the manifest, hand off to       │
+│  Celldega.js — landscape_ist / matrix_viz / yearbook              │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+```
+src/
+  main.js                   window lifecycle, native menu, IPC handlers, recents,
+                            session credential cache, demo dataset list
+  preload.js                contextBridge API (contextIsolation on, nodeIntegration off)
+  local_server.js           static serving + MIME + Range, local mounts, remote proxy
+  obs_app.js                application-level reactive state shared across windows
+  anndata_reader.js         reads .h5ad obs categoricals in main; compact result over IPC
+  python_worker.js          Python discovery + managed runtime + JSON-RPC daemon
+  uv_provision.js           downloads a pinned, checksum-verified uv on first setup
+  analysis_jobs.js          long-running jobs (conversion): spawn, progress, cancel
+  data_sources/
+    local_source.js         folder -> validate -> mount -> base URL
+    http_source.js          remote URL -> base URL (+ proxy URL for fallback)
+    authenticated_source.js S3 credentials -> creds object for Celldega.js
+  renderer/
+    index.html  app.js  app.css   the entire UI: views, forms, cross-window linking
+python/
+  worker.py                 JSON-RPC daemon: clustergram signatures, capabilities
+  preprocess.py             raw Xenium/MERSCOPE -> DegaFiles conversion job
+```
+
+### The loopback server
 
 Celldega.js loads a dataset by fetching `landscape_parameters.json`,
 `cell_metadata.parquet`, image pyramid tiles, and transcript tiles from a base
@@ -286,26 +341,64 @@ serves everything through it — the renderer, the Celldega bundle, and any loca
 dataset folder.
 
 That is the key design choice: once a local folder is mounted at
-`/data/<id>/`, it looks exactly like a remote dataset. Both are just a base URL,
-which keeps the app small.
+`/data/<id>/`, it looks exactly like a remote dataset. Both are just a base
+URL. The Clustergram cache is served the same way, which is why a Clustergram
+window can be reopened later with no Python at all.
 
-```
-src/
-  main.js              window, menu, folder picker, recents, IPC
-  preload.js           contextBridge API (contextIsolation on, nodeIntegration off)
-  local_server.js      static serving + MIME + Range, local mounts, remote proxy
-  data_sources/
-    local_source.js          folder -> validate -> mount -> base URL
-    http_source.js           remote URL -> base URL (+ proxy URL for fallback)
-    authenticated_source.js  S3 credentials -> creds object for Celldega.js
-  renderer/
-    index.html  app.js  app.css
-```
+### Views and windows
+
+Every view opens in its own window: a **Landscape** (spatial view), a
+**Clustergram** (aggregate expression per annotation group), a **Yearbook**
+(gallery of individual cells), and the **dataset card** (one dataset's
+components — DegaFiles, AnnData — and the views that can be opened from it).
+A new window is told what to show through its `obs_app` per-window state, set
+by main before the page loads; the window then re-resolves the dataset itself,
+so it survives an app restart without holding stale mount URLs.
 
 **Loading a dataset** is: fetch the manifest, read `technology`, and call
 `landscape_ist` (or `landscape_h_e` for `h&e`). Camera position is left to
 Celldega — passing `ini_x/ini_y/ini_z/ini_zoom` as `0` makes it auto-fit the
-whole dataset.
+whole dataset. Attaching an AnnData swaps in its categorical annotation as the
+cell metadata, in the exact positional shape Celldega's own parquet path
+produces.
+
+### Cross-window linking (obs_app)
+
+`obs_app` holds application-level state that spans views and windows. The
+authoritative copy lives in the **main process**; renderers read and write it
+over IPC and receive every change as a broadcast, filtering for what they care
+about. Two kinds of state:
+
+- **per-window** — what each window is showing (title, view type, dataset)
+- **per-scope channels** — state shared by windows over the same data, such as
+  the current `selection`
+
+Channels are **scoped by dataset identity** rather than global: clicking a gene
+in a Clustergram publishes `{entity: 'gene', values: [...]}` to its scope's
+`selection` channel, and exactly the windows showing the same dataset apply it
+(the Landscape via its `update_matrix_gene` controller). Windows over different
+data are untouched — linking is correct by construction and needs no linking
+UI. `scope_id` is treated as an opaque key so a future cohort (one analysis
+unit spanning several datasets) can link its windows the same way. This channel
+layer is also the seam a Jupyter bridge would subscribe to; see
+[docs/obs_app_and_multi_window.md](docs/obs_app_and_multi_window.md).
+
+### Python: two execution models
+
+- **`python_worker.js`** runs a persistent JSON-RPC daemon (`python/worker.py`)
+  for requests of a few seconds — clustergram signatures, capability checks —
+  where process start and cold imports would dominate the cost.
+- **`analysis_jobs.js`** spawns **one process per long job** —
+  `python/preprocess.py` converting raw instrument output for minutes to hours
+  — so memory is reclaimed on exit and cancelling means killing the process.
+  Each job directory (request, log, output) is a complete record of what was
+  asked and what happened.
+
+Clustergram signatures are cached in `userData` keyed by a hash of
+`(file, mtime, size, options)`, so re-generating with the same settings is
+instant and regenerating the `.h5ad` invalidates cleanly.
+
+### Remote datasets and credentials
 
 **Remote datasets** are fetched directly first. CORS is a browser restriction,
 so the renderer is the only place that can tell whether a host is reachable; if
@@ -313,20 +406,24 @@ a direct fetch is refused it retries through the local proxy, and the viewer
 shows a `proxied` pill. An HTTP error status is reported straight away rather
 than retried, since the proxy would get the same answer.
 
-**Credentials** are held in renderer memory for the session only and are
-stripped before the recents list is written to disk.
+**Credentials** for private S3 datasets are held in main-process memory for the
+session only — so a dataset can be reopened from Recents without retyping them
+— and are never written to disk; the recents file stores none. Celldega.js
+signs its own requests with them (aws4fetch), and the renderer signs only its
+two pre-flight fetches (manifest and `.dzi`).
 
 ---
 
 ## Scope
 
-**v0.1.0 renders 2D Landscape datasets.** Point-cloud / 3D-orbit datasets
-(`technology: "point-cloud"`, `"neighborhood-cloud"`, `"cell-cloud"`) are
-detected and reported rather than rendered blank.
+**Celldega-App renders 2D Landscape datasets**, plus Clustergrams and Yearbooks
+over them. Point-cloud / 3D-orbit datasets (`technology: "point-cloud"`,
+`"neighborhood-cloud"`, `"cell-cloud"`) are detected and reported rather than
+rendered blank.
 
-Deliberately out of scope for now: Python, AnnData, Clustergram/Matrix,
-Yearbook, and multi-dataset comparison. See [future/](future/) for notes on
-what comes next and why.
+Not here yet: cohorts (linked windows spanning several datasets), a Jupyter
+bridge, and multi-dataset comparison. See [future/](future/) for notes on what
+comes next and why.
 
 ## License
 
