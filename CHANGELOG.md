@@ -10,6 +10,8 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-03
+
 ### Added
 
 - Same-window **Landscape + Clustergram** panels, the default when generating a
@@ -307,7 +309,9 @@ Landscape datasets. **No Node, npm, or Python needed to run it.**
 - 2D Landscape datasets only. Point-cloud / 3D-orbit datasets are detected and
   reported rather than rendered blank.
 
-[Unreleased]: https://github.com/broadinstitute/celldega-app/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/broadinstitute/celldega-app/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/broadinstitute/celldega-app/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.6.1
 [0.3.0]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.3.0
 [0.2.0]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.2.0
 [0.1.4]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.1.4

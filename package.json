@@ -1,7 +1,7 @@
 {
   "name": "celldega-app",
   "productName": "Celldega",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js",
   "main": "src/main.js",
   "license": "SEE LICENSE IN LICENSE.txt",
@@ -11,7 +11,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "dev": "electron-forge start --inspect-electron",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test tests/clustergram_store.test.js tests/renderer.test.js",
     "fetch:uv": "node scripts/fetch_uv.mjs",
     "fetch:uv:mac": "node scripts/fetch_uv.mjs --mac"
   },

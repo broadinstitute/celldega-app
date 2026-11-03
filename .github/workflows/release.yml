@@ -62,6 +62,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
 
       - run: npm ci
+      - run: npm test
 
       - name: Build distributables
         run: npm run make ${{ matrix.arch && format('-- --arch={0}', matrix.arch) || '' }}
@@ -82,76 +83,15 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
       - uses: softprops/action-gh-release@v2
         with:
+          name: Celldega-App ${{ github.ref_name }}
           files: artifacts/**/*
           generate_release_notes: true
-          body: |
-            Desktop viewer for DegaFiles / Landscape datasets, powered by Celldega.js.
-
-            **You do not need Node.js, npm, or Python** — the download is self-contained.
-
-            ## Install on macOS
-
-            Download **`Celldega-App-*-universal.dmg`** below. It runs natively on both
-            Apple Silicon and Intel Macs, so there is nothing to choose between.
-
-            1. Double-click the `.dmg`
-            2. Drag the **Celldega** icon onto the **Applications** folder
-            3. Open **Celldega** from Applications
-
-            ### First launch: "Apple could not verify..."
-
-            You will see this warning once. It appears because the app is not yet signed
-            with a paid Apple Developer certificate — **not** because anything is wrong
-            with the app. macOS shows it for every unsigned app.
-
-            **macOS 15 (Sequoia) and newer** — right-click → Open no longer works, Apple
-            removed that shortcut:
-
-            1. Click **Done** on the warning
-            2. Open  → **System Settings** → **Privacy & Security**
-            3. Scroll to **Security** — you will see *"celldega was blocked to protect your Mac."*
-            4. Click **Open Anyway**, authenticate, then click **Open**
-
-            **macOS 14 (Sonoma) and older** — right-click Celldega → **Open** → **Open**.
-
-            Terminal alternative (any version):
-            ```sh
-            xattr -dr com.apple.quarantine /Applications/Celldega.app
-            ```
-
-            ## Install on Windows
-
-            Run **`Celldega-Setup.exe`**. SmartScreen will warn that the publisher is
-            unrecognised — choose **More info** → **Run anyway**.
-
-            ## Linux
-
-            Not available in this release; the Linux build is still being fixed.
-
-            ---
-
-            Full instructions in the [README](https://github.com/broadinstitute/celldega-app#install).
-
-            <details>
-            <summary>Note for Celldega maintainers: AnnData join key</summary>
-
-            The documented convention that DegaFiles `cell_id` joins to AnnData
-            `obs_names` is **wrong for real Xenium files**. In
-            `Xenium_V1_human_Pancreas_FFPE_outs.h5ad`, `obs_names` is a positional
-            range index (`'0'`, `'1'`, `'2'`) while the actual ids live in
-            `obs['cell_id']` (`'aaaadnje-1'`, …), which is what matches DegaFiles.
-
-            Joining on `obs_names` matches **zero cells, silently** — it looks like
-            "the annotation didn't work" rather than "the join key was wrong".
-
-            Celldega App prefers `obs['cell_id']` and falls back to the index only
-            when absent. The convention should be corrected wherever it is written
-            down, including in Celldega.js. See
-            [`future/js_api.md`](https://github.com/broadinstitute/celldega-app/blob/main/future/js_api.md).
-            </details>
+          body_path: RELEASE_NOTES.md
