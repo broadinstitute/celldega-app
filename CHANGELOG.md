@@ -10,6 +10,15 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-03
+
+### Fixed
+
+- Normalize Windows line endings in the renderer test harness so the release
+  tests pass on Windows runners.
+- Point the Linux DEB and RPM makers at the packaged `celldega` executable,
+  instead of inferring the binary name from the npm package name.
+
 ## [0.7.0] — 2026-11-03
 
 ### Added
@@ -309,7 +318,8 @@ Landscape datasets. **No Node, npm, or Python needed to run it.**
 - 2D Landscape datasets only. Point-cloud / 3D-orbit datasets are detected and
   reported rather than rendered blank.
 
-[Unreleased]: https://github.com/broadinstitute/celldega-app/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/broadinstitute/celldega-app/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/broadinstitute/celldega-app/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/broadinstitute/celldega-app/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.6.1
 [0.3.0]: https://github.com/broadinstitute/celldega-app/releases/tag/v0.3.0

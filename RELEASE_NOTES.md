@@ -1,7 +1,10 @@
 Desktop viewer for DegaFiles, single-cell Landscapes, and Clustergrams, powered
 by Celldega.js.
 
-## What's new in 0.7.0
+## What's new in 0.7.1
+
+Includes the 0.7.0 features below, with corrections for Windows test line
+endings and Linux DEB/RPM executable names.
 
 - **Linked views in one window.** Landscape + Clustergram panels now share a
   window by default. Choose a separate Clustergram window when generating it,
@@ -33,7 +36,7 @@ Node integration remains disabled and context isolation enabled.
 
 ## Install on macOS
 
-Download **`Celldega-App-0.7.0-universal.dmg`** below. It runs natively on
+Download **`Celldega-App-0.7.1-universal.dmg`** below. It runs natively on
 Apple Silicon and Intel Macs.
 
 1. Double-click the `.dmg`.

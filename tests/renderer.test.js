@@ -14,7 +14,7 @@ const model = (values = {}) => {
   }
 }
 
-const setup = (t) => {
+const setup = (t, { crlf = false } = {}) => {
   const html = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8')
   const dom = new JSDOM(html, { url: 'http://localhost/?dev=1', runScripts: 'outside-only' })
   t.after(() => dom.window.close())
@@ -41,7 +41,9 @@ const setup = (t) => {
   w.tabula_landscape = { zarr_url: 'https://example.org/atlas.zarr' }
   w.tabula_clustergram = {}
   w.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 700, height: 800, bottom: 800 })
-  const js = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8')
+  let source = fs.readFileSync(path.join(__dirname, '../src/renderer/app.js'), 'utf8')
+  if (crlf) source = source.replace(/\r?\n/g, '\r\n')
+  const js = source.replace(/\r\n/g, '\n')
     .replace(/^import .*\n/gm, '').replace(/\ninit\(\)\s*$/, '')
   w.eval(`${js}\nwindow.test_app = {state, render_clustergram, open_linked_clustergram, show_start, apply_selection, wire_events, scope_id_for, generate_clustergram, publish_selection};`)
   const app = w.test_app
@@ -53,6 +55,12 @@ const spec = () => ({ label: 'Test atlas', url: 'https://example.org/matrix.zarr
   scope_id: 'https://example.org/atlas.zarr', category: 'cell_type', rank_dim: 3,
   dataset: { detail: 'https://example.org/atlas.zarr', label: 'Test atlas',
     landscape_options: { zarr_url: 'https://example.org/atlas.zarr' } } })
+
+test('renderer harness accepts Windows line endings', async (t) => {
+  const { app, w } = setup(t, { crlf: true })
+  await app.render_clustergram({ url: 'https://example.org/matrix.zarr' })
+  assert.equal(w.document.getElementById('cgm_status').hidden, true)
+})
 
 test('same-window Clustergram links via models and publishes to other windows', async (t) => {
   const { app, w, calls } = setup(t)

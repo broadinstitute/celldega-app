@@ -59,6 +59,7 @@ module.exports = {
       config: {
         options: {
           name: 'celldega',
+          bin: 'celldega',
           productName: 'Celldega',
           categories: ['Science'],
         },
@@ -70,6 +71,7 @@ module.exports = {
       config: {
         options: {
           name: 'celldega',
+          bin: 'celldega',
           productName: 'Celldega',
           categories: ['Science'],
         },
