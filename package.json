@@ -12,6 +12,7 @@
     "make": "electron-forge make",
     "dev": "electron-forge start --inspect-electron",
     "test": "node --test tests/clustergram_store.test.js tests/renderer.test.js",
+    "screenshots": "electron . --capture-screenshots",
     "fetch:uv": "node scripts/fetch_uv.mjs",
     "fetch:uv:mac": "node scripts/fetch_uv.mjs --mac"
   },

@@ -11,6 +11,8 @@ const { version } = require('./package.json')
 module.exports = {
   packagerConfig: {
     asar: true,
+    // Reference screenshots and their development driver are not app assets.
+    ignore: [/^\/docs\/screenshots(?:\/|$)/, /^\/scripts\/capture_screenshots\.cjs$/],
     name: 'Celldega',
     executableName: 'celldega',
     appBundleId: 'org.broadinstitute.celldega',

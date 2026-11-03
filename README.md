@@ -7,13 +7,22 @@ and Linux.
 Celldega-App is a **desktop shell around Celldega.js**:
 
 > Open a local or remote DegaFiles / Landscape dataset and explore it — as a
-> Landscape, a Clustergram, or a Yearbook — with selections linked across
-> windows.
+> Landscape, a Clustergram, or a Yearbook — with linked Landscape + Clustergram
+> panels in one window or selections shared across separate windows.
 
 No visualization logic is duplicated here — all rendering is Celldega.js.
 Viewing never needs Python; analysis (Clustergram signatures, converting raw
 Xenium/MERSCOPE output into DegaFiles) uses a Python runtime the app
 provisions for itself on request.
+
+## Screenshots
+
+![Linked Tabula Sapiens UMAP and Clustergram](docs/screenshots/tabula-sapiens-linked.png)
+
+Browse the [screenshot gallery](docs/screenshots/README.md) for the start screen,
+dataset form, Atera Kidney Landscape, and linked or separate Tabula Sapiens
+views. The gallery includes capture metadata and instructions for refreshing
+the images.
 
 ---
 

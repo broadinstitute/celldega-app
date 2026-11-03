@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-11-03T15:37:13.824Z",
+  "app_version": "0.7.1",
+  "celldega_js": "0.28.0-alpha.4",
+  "source_revision": "6d43cd411fd4d983488737367fa5ba963136e345",
+  "platform": "darwin",
+  "mode": "source run with a clean temporary profile",
+  "captures": [
+    {
+      "filename": "gallery.png",
+      "description": "Start screen with Atera Kidney first and Tabula Sapiens examples last.",
+      "width": 2880,
+      "height": 2000
+    },
+    {
+      "filename": "open-dataset.png",
+      "description": "Open Dataset form for a local folder or remote URL, with an optional AnnData attachment.",
+      "width": 2880,
+      "height": 2000
+    },
+    {
+      "filename": "atera-kidney-landscape.png",
+      "description": "Atera Kidney spatial Landscape with image, cell-type and gene controls.",
+      "width": 2880,
+      "height": 2000
+    },
+    {
+      "filename": "tabula-sapiens-linked.png",
+      "description": "Tabula Sapiens UMAP and marker Clustergram linked in one window.",
+      "width": 2880,
+      "height": 2000
+    },
+    {
+      "filename": "tabula-sapiens-clustergram.png",
+      "description": "Tabula Sapiens Clustergram in its own window; the UMAP remains open separately.",
+      "width": 2880,
+      "height": 2000
+    },
+    {
+      "filename": "tabula-sapiens-umap.png",
+      "description": "Tabula Sapiens UMAP in its own window, paired with the separate Clustergram.",
+      "width": 2880,
+      "height": 2000
+    }
+  ]
+}

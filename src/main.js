@@ -8,6 +8,12 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, screen } 
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
+// Optional documentation capture driver. Running the real app entry keeps
+// version labels and window behavior identical to `npm start`.
+if (!app.isPackaged && process.argv.includes('--capture-screenshots')) {
+  require('../scripts/capture_screenshots.cjs')
+}
+
 const { start_server } = require('./local_server')
 const obs_app = require('./obs_app')
 const anndata_reader = require('./anndata_reader')
