@@ -4,19 +4,27 @@
 
 import celldega from '/vendor/celldega.js'
 import { AwsClient } from '/vendor/aws4fetch.js'
+import { tabula_landscape, tabula_clustergram } from './gallery.mjs'
 
 const api = window.celldega_app
 
 const $ = (id) => document.getElementById(id)
 
-// Exactly one of these is ever visible. They were previously toggled ad hoc at
-// each call site, which meant opening a Landscape from the dataset card left
-// the card visible too -- both sections stacked, so the Landscape rendered into
-// half the page, and going back re-showed the card above it.
-const VIEWS = ['start_screen', 'viewer', 'card_view', 'yb_view', 'cgm_view']
+// One top-level view is visible. In the linked layout, the two viewer sections
+// move into a shared grid; standalone layouts move them back to the app root.
+const VIEWS = ['start_screen', 'viewer', 'card_view', 'yb_view', 'cgm_view', 'linked_view']
 
 const show_view = (id) => {
+  const linked = id === 'linked_view'
+  const parent = linked ? $('linked_panels') : document.querySelector('.app')
+  for (const view of ['viewer', 'cgm_view']) {
+    if ($(view).parentElement !== parent) parent.appendChild($(view))
+  }
   for (const view of VIEWS) $(view).hidden = view !== id
+  if (linked) {
+    $('viewer').hidden = false
+    $('cgm_view').hidden = false
+  }
 }
 
 // 3D orbit technologies use a different render path and have no image pyramid
@@ -36,6 +44,10 @@ const state = {
   // Landscape from a selection published by another window
   landscape: null,
   clustergram: null,
+  clustergram_view: null,
+  linked: false,
+  gallery: null,
+  unlink_model: null,
   // yearbook_api: update_gene / update_cluster / update_page / update_query
   yearbook: null,
   yearbook_spec: null,
@@ -438,6 +450,8 @@ const YB_DEFAULT_COLS = 5
 // as the Landscape, so an attached AnnData carries over with no extra work.
 const render_yearbook = async (spec) => {
   const el = $('yearbook')
+  state.yearbook?.finalize?.()
+  state.yearbook = null
   show_view('yb_view')
 
   $('yb_label').textContent = spec.label || 'Yearbook'
@@ -553,158 +567,137 @@ const card_open_yearbook = async () => {
 
 // ------------------------------------------------------- clustergram
 
-// Rendering a Clustergram needs no Python at all -- matrix_from_dega_files
-// reads the same cgm/ parquet files whether Python just produced them or they
-// shipped inside a DegaFiles directory. Python is only involved in *making*
-// them, which is why this window can be reopened later with no interpreter.
-const render_clustergram = async (spec) => {
-  const el = $('clustergram')
-  show_view('cgm_view')
-
+// Public options API reads a clustered Matrix Zarr directly. Python is only
+// involved when generating a new matrix; saved results and gallery stores do
+// not need it. The same renderer serves both window layouts.
+const render_clustergram = async (spec, { linked = false } = {}) => {
+  state.unlink_model?.()
+  state.unlink_model = null
+  state.clustergram_view?.finalize?.()
+  state.clustergram_view = null
+  const render_id = state.matrix_render_id = (state.matrix_render_id || 0) + 1
+  state.clustergram = spec
+  state.scope_id = spec.scope_id || null
+  state.linked = linked
+  show_view(linked ? 'linked_view' : 'cgm_view')
   $('cgm_label').textContent = spec.label || 'Clustergram'
-  $('cgm_detail').textContent = `grouped by ${spec.category}`
-
-  // Pills are filled in after drawing: whether a dot plot was actually produced
-  // is only known once the size matrix has been loaded.
-  const set_cgm_pills = () => {
-    const pills = []
-    if (spec.stats) pills.push(`${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups`)
-    if (spec.zscore) pills.push(`z-score by ${spec.zscore}`)
-    if (spec.top_genes) pills.push(`top ${spec.top_genes} by variance`)
-    if (spec.dot_plot && state.clustergram_has_dot) pills.push('dot plot')
-    else if (spec.dot_plot) pills.push('dot plot unavailable')
-    if (spec.cached) pills.push('cached')
-    $('cgm_pills').innerHTML = ''
-    for (const text of pills) {
-      const pill = document.createElement('span')
-      pill.className = 'pill'
-      pill.textContent = text
-      $('cgm_pills').appendChild(pill)
-    }
-  }
-  set_cgm_pills()
-
+  $('cgm_detail').textContent = spec.category ? `grouped by ${spec.category}` : 'Saved Matrix'
+  $('btn_cgm_export').hidden = !spec.key
+  $('btn_cgm_save_table').hidden = !spec.anndata_path
+  $('btn_cgm_separate').hidden = !linked
+  $('btn_cgm_link').hidden = linked || !spec.dataset
+  $('cgm_message').hidden = true
+  $('cgm_pills').textContent = spec.stats
+    ? `${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups${spec.cached ? ' · saved' : ''}` : ''
   $('cgm_status_text').textContent = 'Loading Clustergram…'
   $('cgm_status_sub').textContent = ''
+  $('cgm_spinner').hidden = false
   $('cgm_status').hidden = false
-
   try {
-    // width/height are the size of the MATRIX, not of everything drawn:
-    // celldega adds a control panel above it and a row-label gutter beside it.
-    // Passing the container's size therefore always overflows, clipping the
-    // right-hand columns and the bottom rows.
-    //
-    // Rather than hardcode an allowance that would break whenever that chrome
-    // changes, render once, measure how far the result overflows, and redraw
-    // with the difference subtracted. Self-correcting for any layout.
-    // Clicking a label publishes to the shared channel rather than reaching for
-    // another window. Windows over the same dataset receive it; windows over
-    // other data do not, which is what makes linking correct by construction.
-    const publish = (entity, values) => {
-      if (!state.scope_id) return
-      api.obs_app.set_channel(
-        state.scope_id,
-        'selection',
-        { entity, values, source_view: 'clustergram' },
-        window_id
-      )
-    }
-
-    // Built from networkFromDegaFiles + matrix_viz rather than
-    // matrix_from_dega_files, which is otherwise the obvious call.
-    //
-    // matrix_from_dega_files hardcodes a stub model returning null for every
-    // trait except the row/col entities, and celldega reads the display mode
-    // from model.get('viz_mode'). So it always resolves to 'heatmap' -- the
-    // dot_mat.parquet we compute is loaded into network.size_mat and then
-    // ignored, which is why the dot plot never appeared despite being requested.
-    // Both pieces are public exports, so passing our own model fixes it without
-    // any upstream change.
-    const draw = async (width, height) => {
-      el.innerHTML = ''
-      const network = await celldega.networkFromDegaFiles(spec.base_url, spec.name, {})
-
-      const has_dot = Array.isArray(network.size_mat)
-      const model = {
-        get: (key) => {
-          if (key === 'viz_mode') return has_dot && spec.dot_plot ? 'dotplot' : 'heatmap'
-          if (key === 'row_entity')
-            return JSON.stringify(network.row_entity || { entity: 'gene', attr: 'name' })
-          if (key === 'col_entity')
-            return JSON.stringify(network.col_entity || { entity: 'cell', attr: 'leiden' })
-          return null
-        },
-        set: () => {},
-        save_changes: () => {},
-        on: () => {},
-      }
-
-      state.clustergram_has_dot = has_dot
-      state.clustergram_view = await celldega.matrix_viz(
-        model,
-        el,
-        network,
-        Math.max(200, Math.floor(width)),
-        Math.max(200, Math.floor(height)),
-        (gene) => publish('gene', [gene]), // rows are genes
-        (cluster) => publish('cell_cluster', [cluster]), // columns are groups
-        (clusters) => publish('cell_cluster', clusters) // dendrogram branch
-      )
-    }
-
-    // celldega's own sizing is deterministic, so this needs no measuring:
-    //
-    //   root.style.height = height + height_margin   (height_margin = 100)
-    //   root.style.width  = width  + height_margin
-    //   row_offset        = mat_height / num_rows
-    //
-    // The margin is the control panel and axis chrome, and rows divide the
-    // remaining space evenly -- they scale, they do not have a minimum height.
-    // So the whole problem is just to subtract that margin from both axes;
-    // asking for the container's full size overflows it by exactly 100px in
-    // each direction, which is what was cutting off the right-hand columns and
-    // the bottom rows.
-    const CELLDEGA_MARGIN = 100
-
     const scroller = $('cgm_scroll')
-
-    // Size from the window and the toolbar rather than from the scroller. The
-    // scroller is a flex child whose height is still settling while the view is
-    // being shown -- it reported 921 for what ends up 821 -- whereas
-    // window.innerHeight is correct immediately and the toolbar's height does
-    // not depend on what is drawn inside the scroller.
-    const toolbar = document.querySelector('#cgm_view .toolbar')
-    const toolbar_h = toolbar ? Math.round(toolbar.getBoundingClientRect().height) : 60
-
-    // Three things sit between the window and the drawn matrix, and all three
-    // have to come off the height:
-    //
-    //   toolbar_h        our own chrome, above the scroller
-    //   CONTROL_PANEL    celldega's cluster/dendrogram controls, above the canvas
-    //   CELLDEGA_MARGIN  height_margin, which celldega adds to what it is given
-    //
-    // Measured with all three: canvas bottom 1007 in a 1015 window. Subtracting
-    // only the margin left it at 1108, i.e. 93px below the fold -- which is
-    // exactly the missing column dendrogram.
-    // Both constants are internal celldega values with no accessor. If either
-    // changes upstream this clips again, silently -- see future/js_api.md,
-    // where self-sizing is the top request precisely because it would delete
-    // all of this arithmetic.
-    const CONTROL_PANEL = 101
-    const SLACK = 8
-    const height = window.innerHeight - toolbar_h - CONTROL_PANEL - CELLDEGA_MARGIN - SLACK
-    const width = scroller.clientWidth - CELLDEGA_MARGIN - SLACK
-
-    await draw(width, height)
-
-    state.clustergram = spec
-    set_cgm_pills()
+    // Matrix canvas adds a 100px gutter. Measure the actual pane, including
+    // the current control bar, instead of assuming the full window size.
+    const available = scroller.getBoundingClientRect()
+    const draw = (height) => celldega.clustergram($('clustergram'), {
+      ...(spec.url ? { url: spec.url } : { base_url: spec.base_url, name: spec.name }),
+      width: Math.max(280, Math.floor(available.width - 116)),
+      height: Math.max(200, Math.floor(height)),
+      viz_mode: spec.viz_mode || (spec.dot_plot === false ? 'heatmap' : undefined),
+      rank_dim: spec.rank_dim,
+    })
+    let viz = await draw(available.height - 240)
+    if (state.matrix_render_id !== render_id) { viz.finalize(); return }
+    const overflow = $('clustergram').getBoundingClientRect().bottom - scroller.getBoundingClientRect().bottom
+    if (overflow > 8) {
+      viz.finalize()
+      viz = await draw(available.height - 240 - overflow)
+      if (state.matrix_render_id !== render_id) { viz.finalize(); return }
+    }
+    state.clustergram_view = viz
+    state.unlink_model?.()
+    state.unlink_model = linked && state.landscape?.model
+      ? celldega.link_models(viz.model, 'click_info', state.landscape.model, 'update_trigger') : null
+    viz.model.on('change:click_info', () => {
+      const click = viz.model.get('click_info')
+      if (!click?.value) return
+      const value = click.value
+      const entity = value.entity === 'gene' ? 'gene' : 'cell_cluster'
+      const values = value.selected_names || (value.name ? [value.name] : [])
+      publish_selection(entity, values, 'clustergram', click)
+    })
     $('cgm_status').hidden = true
+    api.obs_app.set_window(window_id, {
+      title: `${spec.label || 'Clustergram'} — ${linked ? 'Linked views' : 'Clustergram'}`,
+      view_type: linked ? 'linked' : 'clustergram', scope_id: spec.scope_id || state.scope_id,
+      label: spec.label, clustergram: spec,
+    })
   } catch (err) {
+    if (state.matrix_render_id !== render_id) return
     $('cgm_spinner').hidden = true
     $('cgm_status_text').textContent = 'Could not render Clustergram'
-    $('cgm_status_sub').textContent = String(err && err.message ? err.message : err)
+    $('cgm_status_sub').textContent = err.message || String(err)
   }
+}
+
+const dataset_spec = () => ({
+  kind: state.source.kind === 'local' ? 'local' : 'remote',
+  detail: state.source.dataset_dir || state.source.base_url || state.source.detail,
+  label: state.source.label,
+  anndata_path: state.anndata?.path,
+  anndata_column: state.anndata?.column,
+  landscape_options: state.source.landscape_options,
+})
+
+const open_linked_clustergram = async (spec) => {
+  if (!spec.dataset) return render_clustergram(spec)
+  const request_id = state.linked_request_id = (state.linked_request_id || 0) + 1
+  const dataset = spec.dataset
+  if (state.landscape) teardown_viewer()
+  state.linked = true
+  show_view('linked_view')
+  if (dataset.landscape_options) {
+    await load_dataset({ kind: 'demo', label: dataset.label, detail: 'Single-cell atlas · UMAP',
+      base_url: dataset.detail, landscape_options: dataset.landscape_options }, { linked: true })
+  } else {
+    const result = dataset.kind === 'local'
+      ? await api.reopen_local_path(dataset.detail)
+      : await api.resolve_remote_dataset(dataset.detail, null)
+    if (state.linked_request_id !== request_id) return
+    if (!result.ok) {
+      await render_clustergram(spec)
+      $('cgm_message').className = 'banner banner-error'
+      $('cgm_message').textContent = `The Landscape could not open: ${result.error}. The saved Clustergram is still available.`
+      $('cgm_message').hidden = false
+      return
+    }
+    state.anndata = null
+    if (dataset.anndata_path) await prepare_anndata(dataset.anndata_path, dataset.anndata_column)
+    await load_dataset({ ...result.source, label: dataset.label }, { linked: true })
+  }
+  if (state.linked_request_id === request_id) await render_clustergram(spec, { linked: true })
+}
+
+const open_saved_clustergram = async (key, separate = false) => {
+  const result = await api.open_saved_clustergram(key)
+  if (!result.ok) return show_start_error(result.error)
+  if (separate) return api.open_clustergram_window(result.spec)
+  state.scope_id = result.spec.scope_id
+  if (result.spec.dataset) await open_linked_clustergram(result.spec)
+  else { teardown_viewer(); await render_clustergram(result.spec) }
+}
+
+const render_saved_clustergrams = async () => {
+  const entries = await api.get_saved_clustergrams()
+  $('saved_section').hidden = !entries.length
+  $('saved_grid').replaceChildren()
+  for (const spec of entries) $('saved_grid').appendChild(make_card({
+    name: spec.label || spec.category,
+    detail: `${spec.stats.n_rows} genes × ${spec.stats.n_cols} groups · ${spec.category}`,
+    meta: 'Saved locally · reopens without Python',
+    on_click: () => open_saved_clustergram(spec.key),
+    secondary_label: 'Separate window',
+    on_secondary: () => open_saved_clustergram(spec.key, true),
+  }))
 }
 
 const open_clustergram_modal = async () => {
@@ -1030,6 +1023,7 @@ const generate_clustergram = async () => {
     dot_plot: $('cgm_dot_plot').checked,
     scope_id: state.scope_id,
     label: state.source ? state.source.label : null,
+    dataset: state.source ? dataset_spec() : null,
   }
 
   const button = $('btn_cgm_generate')
@@ -1046,21 +1040,22 @@ const generate_clustergram = async () => {
     error_el.hidden = false
     return
   }
-  // The Clustergram renders in its own window; this one keeps its Landscape.
   close_clustergram_modal()
+  if ($('cgm_layout').value === 'separate') {
+    await api.open_clustergram_window(result.spec)
+  } else {
+    await open_linked_clustergram(result.spec)
+  }
+  await render_saved_clustergrams()
 }
 
 const save_signature_table = async () => {
-  const ann = state.anndata
-  if (!ann) return
-
-  const error_el = $('cgm_error')
+  const spec = state.clustergram
+  if (!spec?.anndata_path) return
+  const error_el = $('cgm_message')
   error_el.hidden = true
-
   const result = await api.save_signature_table({
-    anndata_path: ann.path,
-    category: $('cgm_category').value,
-    zscore: $('cgm_zscore').checked ? 'row' : null,
+    key: spec.key, category: spec.category,
   })
   if (result.canceled) return
   if (!result.ok) {
@@ -1075,40 +1070,50 @@ const save_signature_table = async () => {
 
 // Apply a selection published by another window in the same scope.
 //
-// Only the Landscape acts on this today. The Clustergram receives the same
-// events -- so a Landscape gene click already reaches it -- but matrix_viz
-// exposes no equivalent controller for driving a rendered Clustergram from
-// outside; see future/js_api.md.
-const apply_selection = (selection) => {
-  if (!selection.values || selection.values.length === 0) return
+// Modern Zarr Landscapes receive Celldega's full click payload. Existing
+// DegaFiles and Yearbook controllers keep their legacy selection adapter.
+const publish_selection = (entity, values, source_view, click_info) => {
+  if (!state.scope_id || (source_view === 'landscape' && state.applying_selection)) return
+  const selection = { entity, values, source_view, click_info }
+  if (source_view !== 'landscape' && !state.unlink_model) apply_selection(selection)
+  api.obs_app.set_channel(state.scope_id, 'selection', selection, window_id)
+}
 
+const apply_selection = async (selection) => {
+  if (!selection.values || (!selection.values.length && !selection.click_info)) return
+
+  state.applying_selection = (state.applying_selection || 0) + 1
   // Each view exposes a different controller shape for the same two operations
   // -- see future/js_api.md, where a common interface is the third proposal.
   // Until then this branch is the translation layer.
   try {
     const landscape = state.landscape
-    if (landscape) {
+    if (landscape?.model && selection.click_info) {
+      landscape.model.set('update_trigger', selection.click_info)
+    } else if (landscape) {
       if (selection.entity === 'gene') {
-        landscape.update_matrix_gene(selection.values[0])
+        await landscape.update_matrix_gene(selection.values[0])
       } else if (selection.entity === 'cell_cluster') {
-        if (selection.values.length === 1) landscape.update_matrix_col(selection.values[0])
-        else landscape.update_matrix_dendro_col(selection.values)
+        if (selection.values.length === 1) await landscape.update_matrix_col(selection.values[0])
+        else await landscape.update_matrix_dendro_col(selection.values)
       }
     }
 
     const yearbook = state.yearbook
     if (yearbook) {
       if (selection.entity === 'gene' && typeof yearbook.update_gene === 'function') {
-        yearbook.update_gene(selection.values[0])
+        await yearbook.update_gene(selection.values[0])
       } else if (
         selection.entity === 'cell_cluster' &&
         typeof yearbook.update_cluster === 'function'
       ) {
-        yearbook.update_cluster(selection.values[0])
+        await yearbook.update_cluster(selection.values[0])
       }
     }
   } catch (err) {
     console.log(`[link] could not apply selection: ${err && err.message}`)
+  } finally {
+    state.applying_selection -= 1
   }
 }
 
@@ -1133,10 +1138,19 @@ const show_start_error = (message) => {
 // ----------------------------------------------------------- navigation
 
 const show_start = () => {
+  clearTimeout(state.resize_timer)
+  state.linked_request_id = (state.linked_request_id || 0) + 1
+  state.matrix_render_id = (state.matrix_render_id || 0) + 1
   teardown_viewer()
   show_view('start_screen')
   state.source = null
   state.scope_id = null
+  state.linked = false
+  state.gallery = null
+  state.clustergram_view?.finalize?.()
+  state.clustergram_view = null
+  state.clustergram = null
+  render_saved_clustergrams()
   // An attached AnnData belongs to the dataset it was attached to
   state.anndata = null
   $('color_by_wrap').hidden = true
@@ -1150,7 +1164,7 @@ const show_start = () => {
 
 const show_viewer = (source) => {
   show_start_error('')
-  show_view('viewer')
+  show_view(state.linked ? 'linked_view' : 'viewer')
   $('viewer_label').textContent = source.label
   $('viewer_detail').textContent = source.detail
   $('viewer_pills').innerHTML = ''
@@ -1167,6 +1181,8 @@ const set_viewer_pills = (items) => {
 }
 
 const teardown_viewer = () => {
+  state.unlink_model?.()
+  state.unlink_model = null
   if (state.cleanup) {
     try {
       if (typeof state.cleanup === 'function') state.cleanup()
@@ -1177,17 +1193,53 @@ const teardown_viewer = () => {
     state.cleanup = null
   }
   state.landscape = null
+  if (state.yearbook) state.yearbook.finalize?.()
+  state.yearbook = null
   $('landscape').innerHTML = ''
 }
 
 // ------------------------------------------------------------- load flow
 
-const load_dataset = async (source) => {
+const load_dataset = async (source, { linked = false } = {}) => {
+  if (!linked && state.linked) {
+    state.clustergram_view?.finalize?.()
+    state.clustergram_view = null
+    state.clustergram = null
+    state.matrix_render_id = (state.matrix_render_id || 0) + 1
+  }
+  state.linked = linked
   state.source = source
   show_viewer(source)
   teardown_viewer()
   show_status('Loading dataset…', source.detail)
 
+  state.scope_id = scope_id_for(source)
+  if (source.landscape_options) {
+    try {
+      const landscape = await celldega.landscape($('landscape'), {
+        ...source.landscape_options,
+        width: $('landscape').clientWidth,
+        height: Math.max(300, $('landscape').clientHeight - 100),
+      })
+      if (state.source !== source) { landscape.finalize?.(); return }
+      state.landscape = landscape
+      state.cleanup = landscape
+      hide_status()
+      set_viewer_pills(['Single-cell UMAP', 'Streamed from Hugging Face'])
+      $('btn_attach_anndata').hidden = true
+      $('btn_clustergram').hidden = true
+      await api.obs_app.set_window(window_id, {
+        title: `${source.label} — Celldega`, view_type: state.linked ? 'linked' : 'gallery',
+        scope_id: state.scope_id, gallery: state.gallery,
+      })
+    } catch (err) {
+      if (state.source !== source) return
+      show_status('Could not load the atlas', err.message, { spinner: false, dismissable: true })
+    }
+    return
+  }
+  $('btn_attach_anndata').hidden = false
+  render_color_by_options()
   const do_fetch = make_fetcher(source.creds)
 
   let resolved
@@ -1228,6 +1280,7 @@ const load_dataset = async (source) => {
     return
   }
 
+  if (state.source !== source) return
   const { base_url, manifest, via_proxy } = resolved
   const technology = manifest.technology || 'unknown'
 
@@ -1326,15 +1379,7 @@ const load_dataset = async (source) => {
     state.landscape = state.cleanup
 
     if (state.landscape && typeof state.landscape.on_gene_select === 'function') {
-      const publish = (entity, values) => {
-        if (!state.scope_id) return
-        api.obs_app.set_channel(
-          state.scope_id,
-          'selection',
-          { entity, values, source_view: 'landscape' },
-          window_id
-        )
-      }
+      const publish = (entity, values) => publish_selection(entity, values, 'landscape')
       state.landscape.on_gene_select((gene) => publish('gene', [gene]))
       state.landscape.on_cluster_select((cluster) => publish('cell_cluster', [cluster]))
       state.landscape.on_clusters_select((clusters) => publish('cell_cluster', clusters))
@@ -1354,6 +1399,7 @@ const load_dataset = async (source) => {
       detail: source.detail,
       technology,
       scope_id: state.scope_id,
+      landscape: dataset_spec(),
     })
   } catch (err) {
     show_status('Failed to render dataset', String(err && err.message ? err.message : err), {
@@ -1643,6 +1689,18 @@ const make_card = ({ name, detail, meta, on_click, on_secondary, secondary_label
   return card
 }
 
+const open_gallery_demo = async (id) => {
+  show_start()
+  state.gallery = id
+  if (id === 'tabula_sapiens_linked') {
+    await open_linked_clustergram(tabula_clustergram)
+  } else {
+    await load_dataset({ kind: 'demo', label: 'Tabula Sapiens',
+      detail: 'Single-cell atlas · UMAP', base_url: tabula_landscape.zarr_url,
+      landscape_options: tabula_landscape })
+  }
+}
+
 const render_demos = async () => {
   const demos = await api.get_demo_datasets()
   const grid = $('demos_grid')
@@ -1652,8 +1710,10 @@ const render_demos = async () => {
       make_card({
         name: demo.label,
         detail: demo.detail,
-        meta: demo.is_default ? 'Suggested · streamed from GitHub' : 'Streamed from GitHub',
-        on_click: () => open_remote_url(demo.base_url, demo.label, demo.detail, 'demo'),
+        meta: demo.gallery_id ? 'Streamed from Hugging Face · no Python'
+          : demo.is_default ? 'Suggested · streamed from GitHub' : 'Streamed from GitHub',
+        on_click: () => demo.gallery_id ? open_gallery_demo(demo.gallery_id)
+          : open_remote_url(demo.base_url, demo.label, demo.detail, 'demo'),
       })
     )
   }
@@ -1699,11 +1759,17 @@ const render_recents = async () => {
 // ---------------------------------------------------------------- events
 
 const handle_resize = () => {
-  // A Clustergram window redraws from its cached DegaFiles, so this costs a
+  // A Clustergram redraws from its saved Matrix, so this costs a
   // re-render but no recomputation.
   if (!$('cgm_view').hidden && state.clustergram) {
     clearTimeout(state.resize_timer)
-    state.resize_timer = setTimeout(() => render_clustergram(state.clustergram), 400)
+    state.resize_timer = setTimeout(async () => {
+      const spec = { ...state.clustergram,
+        rank_dim: state.clustergram_view?.model?.get('rank_dim'),
+        viz_mode: state.clustergram_view?.model?.get('viz_mode') }
+      if (state.linked) await open_linked_clustergram(spec)
+      else await render_clustergram(spec)
+    }, 400)
     return
   }
 
@@ -1717,6 +1783,35 @@ const handle_resize = () => {
 
 const wire_events = () => {
   $('btn_open_dataset').addEventListener('click', open_remote_modal)
+  $('btn_open_clustergram').addEventListener('click', async () => {
+    const result = await api.pick_clustergram()
+    if (!result.ok) return
+    show_start()
+    state.scope_id = null
+    await render_clustergram(result.spec)
+  })
+  $('btn_cgm_back').addEventListener('click', show_start)
+  $('btn_cgm_link').addEventListener('click', () => open_linked_clustergram(state.clustergram))
+  $('btn_cgm_separate').addEventListener('click', async () => {
+    await api.open_clustergram_window({ ...state.clustergram,
+      rank_dim: state.clustergram_view?.model?.get('rank_dim'),
+      viz_mode: state.clustergram_view?.model?.get('viz_mode') })
+    state.unlink_model?.()
+    state.unlink_model = null
+    state.clustergram_view?.finalize?.()
+    state.clustergram_view = null
+    state.clustergram = null
+    state.linked = false
+    if (state.source.landscape_options) state.gallery = 'tabula_sapiens'
+    await load_dataset(state.source)
+  })
+  $('btn_cgm_export').addEventListener('click', async () => {
+    const result = await api.export_clustergram(state.clustergram.key)
+    if (result.canceled) return
+    $('cgm_message').className = `banner ${result.ok ? 'banner-info' : 'banner-error'}`
+    $('cgm_message').textContent = result.ok ? `Saved ${result.path}` : result.error
+    $('cgm_message').hidden = false
+  })
   $('btn_make_degafiles').addEventListener('click', open_convert_modal)
   $('btn_back').addEventListener('click', show_start)
 
@@ -1874,7 +1969,7 @@ const init = async () => {
 
   // Test hook, opt-in via ?dev=1 on the window URL. Not reachable in normal use.
   if (new URLSearchParams(location.search).get('dev') === '1') {
-    window.__dev = { state, form, attach_anndata_path, apply_color_by, build_meta_from_column }
+    window.__dev = { state, form, attach_anndata_path, apply_color_by, build_meta_from_column, open_gallery_demo, render_clustergram, open_linked_clustergram, show_start, apply_selection, generate_clustergram }
   }
 
   wire_events()
@@ -1883,6 +1978,14 @@ const init = async () => {
   // state, set by main before the page loaded. Reading it here is what lets a
   // second window render something entirely different from the first.
   const own_state = await api.obs_app.get_window(window_id)
+  if (own_state?.view_type === 'linked' && own_state.clustergram) {
+    await open_linked_clustergram(own_state.clustergram)
+    return
+  }
+  if (own_state?.view_type === 'gallery' && own_state.gallery) {
+    await open_gallery_demo(own_state.gallery)
+    return
+  }
   if (own_state && own_state.view_type === 'clustergram' && own_state.clustergram) {
     state.scope_id = own_state.scope_id || null
     await render_clustergram({ ...own_state.clustergram, label: own_state.label })
@@ -1908,7 +2011,7 @@ const init = async () => {
     return
   }
 
-  await Promise.all([render_demos(), render_recents()])
+  await Promise.all([render_demos(), render_recents(), render_saved_clustergrams()])
 
   try {
     const versions = await api.get_versions()
@@ -1919,6 +2022,12 @@ const init = async () => {
     pill.className = 'pill'
     pill.textContent = `v${versions.app}`
     $('version_pills').appendChild(pill)
+    if (versions.development) {
+      const dev = document.createElement('span')
+      dev.className = 'pill'
+      dev.textContent = 'Development'
+      $('version_pills').appendChild(dev)
+    }
   } catch {
     // Version pills are decorative
   }

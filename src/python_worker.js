@@ -74,12 +74,12 @@ const uv_env = () => ({
 })
 
 // Pin the Python celldega to the same version as the pinned celldega.js. They
-// share a version stream (PyPI and npm are both 0.24.1), and a managed
+// share a version stream (with different prerelease spelling), and a managed
 // environment is the only way to actually guarantee it -- a discovered Python
 // gives you whatever the user happens to have.
 const CELLDEGA_VERSION = (() => {
   try {
-    return require('../package.json').dependencies.celldega
+    return require('../package.json').dependencies.celldega.replace(/-alpha\.(\d+)$/, 'a$1')
   } catch {
     return null
   }

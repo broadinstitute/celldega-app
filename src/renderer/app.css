@@ -335,6 +335,19 @@ body.is-mac .toolbar { padding-left: 84px; }
 #landscape { position: absolute; inset: 0; overflow: hidden; }
 #landscape canvas { display: block; }
 
+.linked-view { flex: 1; min-height: 0; overflow: auto; }
+.linked-panels {
+  display: grid;
+  grid-template-columns: minmax(440px, 1fr) minmax(580px, 1fr);
+  min-width: 1020px;
+  height: 100%;
+}
+.linked-panels > .viewer { min-width: 0; min-height: 0; height: 100%; }
+.linked-panels > #cgm_view { border-left: 1px solid var(--border); }
+.linked-panels .toolbar { flex-wrap: wrap; gap: 8px; }
+.linked-panels .toolbar-right { flex-wrap: wrap; gap: 8px; }
+body.is-mac .linked-panels #cgm_view .toolbar { padding-left: 16px; }
+
 /* -------------------------------------------------------------- overlay */
 
 .overlay {

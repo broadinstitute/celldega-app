@@ -10,6 +10,37 @@ Downloads for every release are on the
 
 ## [Unreleased]
 
+### Added
+
+- Same-window **Landscape + Clustergram** panels, the default when generating a
+  Clustergram, alongside the existing separate-window workflow. Both use the
+  same dataset scope; linked views can open their Clustergram separately.
+- Durable **Saved Clustergrams**, stored as Matrix Zarr and reopened without
+  Python, with **Save Matrix…** and **Open Clustergram…** for portable results.
+- **Atera Kidney** as the first gallery example, plus **Tabula Sapiens** UMAP
+  and linked UMAP + marker Clustergram examples at the end of the list.
+- An isolated **Celldega Dev** profile for source runs, and a documented local
+  test/package workflow that does not publish a release.
+
+### Changed
+
+- Pin Celldega.js to **0.28.0-alpha.4** and celldega.py to **0.28.0a4**;
+  regenerate the managed Python lockfile. Normalize npm/PyPI alpha spelling
+  when checking runtime compatibility.
+- Use Celldega's public `clustergram` and `landscape` options APIs for Zarr
+  views and its model-linking API for the linked Tabula example.
+- **Save signatures…** exports the generated matrix's exact values, including
+  its filtering and normalization, from the saved Matrix.
+- Permit dynamic JavaScript compilation in the renderer CSP, required by the
+  alpha's bundled Zarr codec bindings.
+
+### Fixed
+
+- Suppress selection feedback from legacy Landscape controllers so applying
+  a cross-window selection does not broadcast it back.
+- Avoid AnnData's index/category naming collision when writing signatures to
+  Matrix Zarr, and invalidate numeric caches after a Celldega upgrade.
+
 ## [0.6.1] — 2026-08-14
 
 ### Fixed

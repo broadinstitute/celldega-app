@@ -203,11 +203,45 @@ development — end users should use a [release build](#install).
 ```sh
 git clone https://github.com/broadinstitute/celldega-app
 cd celldega-app
-npm install
+npm ci
 npm start
 ```
 
 ## Development install
+
+This checkout pins **Celldega.js 0.28.0-alpha.4** and **celldega.py 0.28.0a4**
+(the same alpha, with npm and PyPI's respective version spelling).
+
+To try these changes before a release:
+
+```sh
+cd /path/to/celldega-app
+npm ci
+npm test
+npm start
+```
+
+Source runs use a separate **Celldega Dev** profile. On macOS this lives at
+`~/Library/Application Support/Celldega Dev/`, including its own recents,
+saved Clustergrams, and analysis runtime. Your installed release can run beside
+it. To use another temporary profile, set `CELLDEGA_USER_DATA=/path/to/profile`.
+
+Try **Atera Kidney** (the first example), then the **Tabula Sapiens** examples
+at the end. The linked Tabula example opens a UMAP and marker Clustergram in one
+window. Click a gene or cell-type column, then use **Separate window** to test
+the same selection linking across windows. These examples need no Python.
+
+For your own dataset, attach an AnnData, choose **Clustergram…**, and select
+**Linked in this window** (default) or **Clustergram in a separate window**.
+If needed, use **File → Analysis Runtime… → Set up/Rebuild** to provision the
+matching Python alpha. Generated results appear under **Saved Clustergrams**
+and reopen after quitting without recomputation. Their numeric data and
+clustering do not depend on the original AnnData remaining available.
+
+For an installer rehearsal, run `npm run package` or `npm run make`; output goes
+to `out/` or `out/make/`. These commands build locally and do not publish.
+The release workflow runs when you push a version tag (or invoke it in GitHub
+Actions). Keep the app version unchanged until you are ready to release.
 
 `npm start` **runs the app directly from the source tree** — that is the
 development install. Nothing is copied or bundled, so any edit to `src/` shows
@@ -222,6 +256,14 @@ window reload with `Cmd/Ctrl+R`.
 `View → Toggle Developer Tools` opens the usual Chromium inspector. Renderer
 console output and load failures are also echoed to the terminal running
 `npm start`, so a renderer error is visible without opening DevTools.
+
+The JavaScript suite runs with `npm test`. To exercise the Python Matrix Zarr
+round-trip and exact table export, use an environment containing the pinned
+alpha:
+
+```sh
+/path/to/python -m unittest discover -s tests -p 'test_*.py'
+```
 
 ### Developing against a local Celldega.js
 
@@ -347,10 +389,12 @@ window can be reopened later with no Python at all.
 
 ### Views and windows
 
-Every view opens in its own window: a **Landscape** (spatial view), a
-**Clustergram** (aggregate expression per annotation group), a **Yearbook**
-(gallery of individual cells), and the **dataset card** (one dataset's
-components — DegaFiles, AnnData — and the views that can be opened from it).
+A **Landscape** (spatial or single-cell UMAP view) and **Clustergram** (aggregate
+expression per annotation group) can share a window or open in separate windows.
+Choose the layout when generating a Clustergram, use **Separate window** from a
+linked view, or **Link in this window** from a standalone generated Clustergram.
+The **Yearbook** (gallery of individual cells) opens in its own window. The
+**dataset card** lists one dataset's components and available views.
 A new window is told what to show through its `obs_app` per-window state, set
 by main before the page loads; the window then re-resolves the dataset itself,
 so it survives an app restart without holding stale mount URLs.
@@ -394,9 +438,27 @@ layer is also the seam a Jupyter bridge would subscribe to; see
   Each job directory (request, log, output) is a complete record of what was
   asked and what happened.
 
-Clustergram signatures are cached in `userData` keyed by a hash of
-`(file, mtime, size, options)`, so re-generating with the same settings is
-instant and regenerating the `.h5ad` invalidates cleanly.
+Clustergrams are stored as clustered **Matrix Zarr** folders in `userData`,
+keyed by `(Celldega version, storage schema, file, mtime, size, options)`.
+Re-generating with the same settings is instant; changing the input or Celldega
+version invalidates the cache. **Saved Clustergrams** lists completed results
+across app launches and remounts them using fresh loopback URLs. No credentials
+or per-launch URLs are stored with the results.
+
+**Save Matrix…** copies the complete `.zarr` folder for use elsewhere;
+**Open Clustergram…** reopens a local Matrix Zarr without Python.
+In Python, use `dega.clust.Matrix.read_zarr("result.zarr")`. Storage preserves
+matrix values, dot sizes, row/column metadata, colors, axis entities,
+dendrograms, and any precomputed views. It does not snapshot transient browser
+interactions such as zoom, crop, or unsaved manual edits. **Save signatures…**
+exports the saved matrix's exact values (including filtering/normalization) as
+CSV or Parquet, using Python.
+
+Celldega 0.28's bundled Zarr codecs construct JavaScript wrapper functions as
+well as WebAssembly. The renderer's CSP therefore permits `unsafe-eval` for
+these bindings; scripts still load from the local app, with Node integration
+disabled and context isolation enabled. Revisit this exception when upstream
+provides codecs that do not require dynamic JavaScript compilation.
 
 ### Remote datasets and credentials
 

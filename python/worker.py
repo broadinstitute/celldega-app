@@ -155,7 +155,13 @@ def method_cluster_signature(params):
     )
 
     signature = sets.mod["expression"]
-    mat = dega.clust.Matrix(signature)
+    # AnnData rejects a named index that collides with a categorical column
+    # during Zarr writes, even when their displayed labels match. Keep the
+    # grouping column and labels, but leave the index name unset.
+    signature.obs.index.name = None
+    mat = dega.clust.Matrix(
+        signature, col_attr=[category], col_entity={"entity": "cell", "attr": category}
+    )
 
     # Keep the most variable genes across sets. Order matters: this MUST run
     # before z-scoring, because z-scoring forces every gene to variance 1 and
@@ -179,15 +185,18 @@ def method_cluster_signature(params):
             modality_name="fraction",
             aggregate="fraction",
         )
-        mat.set_dot_matrix(sets.mod["fraction"])
+        mat.set_size_matrix(sets.mod["fraction"])
 
-    mat.clust()
-    mat.write_dega_files(out_dir, name=name)
+    mat.cluster()
+    # A clustered Matrix store retains values, dot sizes, metadata, entities,
+    # colors and dendrograms, and reopens directly in JavaScript without Python.
+    matrix_path = os.path.join(out_dir, "matrix.zarr")
+    mat.write_zarr(matrix_path)
 
     df = mat.to_df()
     return {
         "name": name,
-        "cgm_path": os.path.join(out_dir, "cgm", name),
+        "matrix_path": matrix_path,
         "n_rows": int(df.shape[0]),
         "n_cols": int(df.shape[1]),
         "row_names": [str(x) for x in df.index[:50]],
@@ -208,6 +217,17 @@ def method_signature_dataframe(params):
     """
     import celldega as dega
     import anndata
+
+    if params.get("matrix_path"):
+        # Export exactly what was generated, including its filtering and
+        # normalization, without needing the original AnnData again.
+        df = dega.clust.Matrix.read_zarr(params["matrix_path"]).to_df()
+        out_file = params["out_file"]
+        if out_file.endswith(".parquet"):
+            df.to_parquet(out_file)
+        else:
+            df.to_csv(out_file)
+        return {"out_file": out_file, "n_rows": int(df.shape[0]), "n_cols": int(df.shape[1])}
 
     path = params.get("path")
     category = params.get("category")

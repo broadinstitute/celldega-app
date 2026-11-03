@@ -47,6 +47,11 @@ contextBridge.exposeInMainWorld('celldega_app', {
     ipcRenderer.on('python_setup_progress', (_event, progress) => handler(progress))
   },
   generate_clustergram: (options) => ipcRenderer.invoke('generate_clustergram', options),
+  get_saved_clustergrams: () => ipcRenderer.invoke('get_saved_clustergrams'),
+  open_saved_clustergram: (key) => ipcRenderer.invoke('open_saved_clustergram', key),
+  pick_clustergram: () => ipcRenderer.invoke('pick_clustergram'),
+  export_clustergram: (key) => ipcRenderer.invoke('export_clustergram', key),
+  open_clustergram_window: (spec) => ipcRenderer.invoke('open_clustergram_window', spec),
   open_landscape: (options) => ipcRenderer.invoke('open_landscape', options),
   open_yearbook: (options) => ipcRenderer.invoke('open_yearbook', options),
   save_signature_table: (options) => ipcRenderer.invoke('save_signature_table', options),

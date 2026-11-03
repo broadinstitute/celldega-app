@@ -2,6 +2,8 @@ node_modules/
 out/
 .DS_Store
 *.log
+__pycache__/
+*.pyc
 
 # local machine-specific Claude Code settings
 .claude/settings.local.json

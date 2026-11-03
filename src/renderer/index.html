@@ -6,10 +6,13 @@
   connect-src needs https: for direct remote datasets, and data: because the
   celldega bundle inlines parquet-wasm as a base64 data URI.
   'wasm-unsafe-eval' lets that module instantiate; blob: covers deck.gl workers.
+  Celldega 0.28's bundled numcodecs Zstd/Blosc bindings also construct JavaScript
+  wrapper functions, requiring 'unsafe-eval' to read Matrix/AnnData Zarr stores.
+  Scripts still load only from this loopback app; Node integration stays off.
 -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
-  script-src 'self' 'wasm-unsafe-eval' blob:;
+  script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' blob:;
   style-src 'self' 'unsafe-inline';
   img-src 'self' data: blob: https: http://127.0.0.1:*;
   connect-src 'self' data: blob: https: http://127.0.0.1:*;
@@ -42,6 +45,7 @@
 
       <div class="action-row">
         <button class="btn btn-primary" id="btn_open_dataset">Open Dataset…</button>
+        <button class="btn" id="btn_open_clustergram">Open Clustergram…</button>
         <button class="btn" id="btn_make_degafiles"
                 title="Convert raw Xenium or MERSCOPE output into DegaFiles">
           Make DegaFiles…
@@ -68,10 +72,16 @@
           <button class="linkish" id="btn_open_gallery">View gallery</button>
         </div>
         <p class="section-note">
-          Public datasets streamed from GitHub. The first load fetches image
-          tiles over the network, so give it a moment.
+          Public datasets streamed from GitHub and Hugging Face. The first load
+          fetches metadata and tiles over the network, so give it a moment.
         </p>
         <div class="card-grid" id="demos_grid"></div>
+      </section>
+
+      <section class="section" id="saved_section" hidden>
+        <div class="section-head"><h2>Saved Clustergrams</h2></div>
+        <p class="section-note">Generated results saved on this computer. Reopen without Python.</p>
+        <div class="card-grid" id="saved_grid"></div>
       </section>
     </div>
   </section>
@@ -122,6 +132,10 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <section id="linked_view" class="linked-view" hidden aria-label="Linked Landscape and Clustergram">
+    <div id="linked_panels" class="linked-panels"></div>
   </section>
 
   <!-- Dataset card: the components attached to one dataset, and the views
@@ -254,6 +268,7 @@
   <section id="cgm_view" class="viewer" hidden>
     <div class="toolbar">
       <div class="toolbar-left">
+        <button class="btn btn-ghost" id="btn_cgm_back" title="All datasets">←</button>
         <div class="toolbar-title">
           <strong id="cgm_label">Clustergram</strong>
           <span class="toolbar-detail" id="cgm_detail"></span>
@@ -261,12 +276,16 @@
       </div>
       <div class="toolbar-right">
         <div class="pill-row" id="cgm_pills"></div>
+        <button class="btn btn-ghost" id="btn_cgm_link" hidden>Link in this window</button>
+        <button class="btn btn-ghost" id="btn_cgm_separate" hidden>Separate window</button>
+        <button class="btn btn-ghost" id="btn_cgm_export" hidden>Save Matrix…</button>
         <button class="btn btn-ghost" id="btn_cgm_save_table"
                 title="Save the signature matrix as CSV or parquet">
           Save signatures…
         </button>
       </div>
     </div>
+    <div id="cgm_message" class="banner banner-info" role="status" hidden></div>
     <div class="canvas-wrap">
       <!-- celldega sets inline styles on the element it renders into, including
            position, so the scrolling container must be one it does not own. -->
@@ -397,6 +416,13 @@
   <div class="modal-backdrop" id="cgm_modal" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cgm_modal_title">
       <h3 id="cgm_modal_title">Generate Clustergram</h3>
+      <label class="field">
+        <span>Open views</span>
+        <select id="cgm_layout">
+          <option value="linked">Linked in this window</option>
+          <option value="separate">Clustergram in a separate window</option>
+        </select>
+      </label>
       <p class="modal-note">
         Aggregates expression per category into a signature, then clusters it.
         This is the one step that uses Python.

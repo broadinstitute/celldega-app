@@ -8,13 +8,12 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, screen } 
 const path = require('node:path')
 const fsp = require('node:fs/promises')
 
-const crypto = require('node:crypto')
-
 const { start_server } = require('./local_server')
 const obs_app = require('./obs_app')
 const anndata_reader = require('./anndata_reader')
 const python_worker = require('./python_worker')
 const analysis_jobs = require('./analysis_jobs')
+const clustergram_store = require('./clustergram_store')
 const local_source = require('./data_sources/local_source')
 const http_source = require('./data_sources/http_source')
 const authenticated_source = require('./data_sources/authenticated_source')
@@ -22,17 +21,30 @@ const authenticated_source = require('./data_sources/authenticated_source')
 const RENDERER_ROOT = path.join(__dirname, 'renderer')
 const MAX_RECENTS = 12
 
+// Source runs get their own profile, including Python, caches and recents.
+// This lets a development build run beside an installed release safely.
+if (!app.isPackaged || process.env.CELLDEGA_USER_DATA) {
+  app.setPath('userData', process.env.CELLDEGA_USER_DATA
+    ? path.resolve(process.env.CELLDEGA_USER_DATA)
+    : path.join(app.getPath('appData'), 'Celldega Dev'))
+}
+
 // Public demo datasets from the Celldega gallery
-// (https://broadinstitute.github.io/celldega/gallery/). All are served from
-// raw.githubusercontent.com, which sends `access-control-allow-origin: *`, so
-// the renderer's direct fetch path handles them without the proxy.
+// (https://broadinstitute.github.io/celldega/gallery/). Spatial DegaFiles stream
+// from GitHub; the single-cell Zarr examples stream from Hugging Face.
 const DEMO_DATASETS = [
+  {
+    label: 'Atera Kidney',
+    detail: 'Atera v1 WTA · non-diseased kidney · FFPE',
+    base_url:
+      'https://raw.githubusercontent.com/broadinstitute/Celldega_Atera_v1_WTA_Kidney_non_diseased_FFPE/3a46ab4db67821eef3b8ff8d1c3704fb7b3bb48f',
+    is_default: true,
+  },
   {
     label: 'Human Pancreas',
     detail: 'Xenium V1 · FFPE · 4 image channels',
     base_url:
       'https://raw.githubusercontent.com/broadinstitute/celldega_Xenium_human_Pancreas_FFPE/main/Landscape_Xenium_V1_human_Pancreas_FFPE_outs_webp',
-    is_default: true,
   },
   {
     label: 'Mouse Brain Coronal',
@@ -64,6 +76,16 @@ const DEMO_DATASETS = [
     // DegaFiles live at the repository root rather than in a subdirectory
     base_url:
       'https://raw.githubusercontent.com/cornhundred/Celldega_WTA_Preview_FFPE_Cervical_Cancer_outs_gh/main',
+  },
+  {
+    label: 'Tabula Sapiens',
+    detail: 'Single-cell atlas · UMAP · 1.1 million cells',
+    gallery_id: 'tabula_sapiens',
+  },
+  {
+    label: 'Tabula Sapiens — linked Landscape + Clustergram',
+    detail: 'UMAP + cell-type marker dot plot · linked selections',
+    gallery_id: 'tabula_sapiens_linked',
   },
 ]
 
@@ -409,7 +431,7 @@ const register_ipc = () => {
     } catch {
       /* reported as unknown below */
     }
-    return { app: app.getVersion(), celldega_js }
+    return { app: app.getVersion(), celldega_js, development: !app.isPackaged }
   })
 
   // ---- AnnData ---------------------------------------------------------
@@ -633,104 +655,118 @@ const register_ipc = () => {
     return python_worker.setup_managed_env(send_progress)
   })
 
-  // Signatures are a deterministic function of (file, column, options), so the
-  // result is cached by a hash of exactly those. Re-clustering is an iterative
-  // step -- flipping z-score off and back on should be instant, not a recompute.
-  //
-  // The cache lives in userData rather than the dataset folder. Writing
-  // cgm/ into DegaFiles is for finished work destined for a gallery or a
-  // presentation, so it stays a deliberate action rather than a side effect of
-  // experimenting.
   const clustergram_cache_root = () => path.join(app.getPath('userData'), 'clustergram_cache')
+  const pending_clustergrams = new Map()
+  const mount_clustergram = (spec) => {
+    const mount_id = server.add_local_mount(spec.matrix_path)
+    return { ...spec, url: `${server.origin}/data/${mount_id}` }
+  }
+
+  ipcMain.handle('get_saved_clustergrams', async () => clustergram_store.list(clustergram_cache_root()))
+
+  ipcMain.handle('open_saved_clustergram', async (_event, key) => {
+    try {
+      return { ok: true, spec: mount_clustergram(await clustergram_store.read(clustergram_cache_root(), key)) }
+    } catch (err) {
+      return { ok: false, error: `Could not reopen Clustergram: ${err.message}` }
+    }
+  })
+
+  ipcMain.handle('pick_clustergram', async () => {
+    const picked = await dialog.showOpenDialog(focused_window(), {
+      title: 'Open a Matrix Zarr folder', properties: ['openDirectory'],
+    })
+    if (picked.canceled || !picked.filePaths.length) return { ok: false, canceled: true }
+    const matrix_path = picked.filePaths[0]
+    return { ok: true, spec: mount_clustergram({ matrix_path, label: path.basename(matrix_path) }) }
+  })
+
+  ipcMain.handle('export_clustergram', async (_event, key) => {
+    try {
+      const spec = await clustergram_store.read(clustergram_cache_root(), key)
+      const picked = await dialog.showSaveDialog(focused_window(), {
+        title: 'Save clustered Matrix', defaultPath: `${spec.category || 'clustergram'}.zarr`,
+      })
+      if (picked.canceled || !picked.filePath) return { ok: false, canceled: true }
+      const target = path.resolve(picked.filePath)
+      const source = path.resolve(spec.matrix_path)
+      if (target === source || target.startsWith(source + path.sep) || source.startsWith(target + path.sep)) {
+        return { ok: false, error: 'Choose a location outside the saved Clustergram.' }
+      }
+      // Do not merge into an existing Zarr: stale chunks could corrupt it.
+      await fsp.cp(source, target, { recursive: true, force: false, errorOnExist: true })
+      return { ok: true, path: target }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('open_clustergram_window', async (_event, spec) => {
+    const work_area = screen.getPrimaryDisplay().workAreaSize
+    const win = create_window({
+      width: Math.min(1440, work_area.width - 40),
+      height: Math.min(1100, work_area.height - 40),
+    })
+    obs_app.set_window(win.__celldega_window_id, {
+      title: `${spec.label || 'Clustergram'} — Clustergram`,
+      view_type: 'clustergram', scope_id: spec.scope_id || null,
+      label: spec.label, clustergram: spec,
+    })
+    return { ok: true, window_id: win.__celldega_window_id }
+  })
 
   ipcMain.handle('generate_clustergram', async (_event, options) => {
     const {
-      anndata_path,
-      category,
-      scope_id,
-      label,
-      zscore = 'row',
-      top_genes = null,
-      dot_plot = true,
-      normalization = 'log1p_cpm',
+      anndata_path, category, scope_id, label, dataset,
+      zscore = 'row', top_genes = null, dot_plot = true, normalization = 'log1p_cpm',
     } = options || {}
-
-    if (!anndata_path || !category) {
-      return { ok: false, error: 'An AnnData file and a category are required' }
+    if (!anndata_path || !category) return { ok: false, error: 'An AnnData file and a category are required' }
+    if (top_genes !== null && (!Number.isInteger(top_genes) || top_genes < 2)) {
+      return { ok: false, error: 'Top genes must be a whole number of at least 2, or empty.' }
     }
-
-    // Include the file's mtime and size, so regenerating the .h5ad invalidates
-    // the cache rather than silently serving a stale Clustergram.
-    let stamp = ''
+    let stamp
     try {
       const stat = await fsp.stat(anndata_path)
       stamp = `${stat.mtimeMs}:${stat.size}`
     } catch {
       return { ok: false, error: `Could not read ${anndata_path}` }
     }
-
-    const key = crypto
-      .createHash('sha256')
-      .update(JSON.stringify([anndata_path, stamp, category, zscore, top_genes, dot_plot, normalization]))
-      .digest('hex')
-      .slice(0, 16)
-
+    const settings = { anndata_path, category, zscore, top_genes, dot_plot, normalization }
+    const key = clustergram_store.cache_key(settings, stamp, python_worker.CELLDEGA_VERSION)
     const out_dir = path.join(clustergram_cache_root(), key)
-    const name = String(category).replace(/[^a-zA-Z0-9_-]/g, '_')
-    const meta_file = path.join(out_dir, 'cgm', name, 'meta.json')
-
-    // Stats are cached alongside the files. Without this a cache hit returned
-    // no row count, and the renderer sizes the Clustergram from exactly that --
-    // so a cached Clustergram silently rendered too short and lost its lower
-    // rows, while a freshly computed one was fine.
-    const stats_file = path.join(out_dir, 'app_stats.json')
-
-    let cached = false
-    let stats = null
-    try {
-      await fsp.access(meta_file)
-      cached = true
-      stats = JSON.parse(await fsp.readFile(stats_file, 'utf8'))
-    } catch {
-      cached = false
-    }
-
-    if (!cached) {
+    let spec = await clustergram_store.read(clustergram_cache_root(), key).catch(() => null)
+    const cached = Boolean(spec)
+    if (!spec) {
       await fsp.mkdir(out_dir, { recursive: true })
-      const result = await python_worker.request(
-        'cluster_signature',
-        { path: anndata_path, category, out_dir, name, zscore, top_genes, dot_plot, normalization },
-        { timeout_ms: 900000 }
-      )
-      if (!result.ok) return { ok: false, error: result.error }
-      stats = result.result
-      await fsp.writeFile(stats_file, JSON.stringify(stats)).catch(() => {})
+      // Several windows can request the same result at once. Share its writer
+      // so they cannot overwrite chunks while another window is reading them.
+      let pending = pending_clustergrams.get(key)
+      if (!pending) {
+        pending = python_worker.request('cluster_signature', {
+          path: anndata_path, category, out_dir, zscore, top_genes, dot_plot, normalization,
+        }, { timeout_ms: 900000 })
+        pending_clustergrams.set(key, pending)
+      }
+      let result
+      try {
+        result = await pending
+      } catch (err) {
+        pending_clustergrams.delete(key)
+        return { ok: false, error: err.message }
+      }
+      if (!result.ok) {
+        pending_clustergrams.delete(key)
+        return { ok: false, error: result.error }
+      }
+      spec = { ...settings, key, stats: result.result, matrix_path: result.result.matrix_path,
+        created_at: Date.now() }
     }
-
-    // Serve the cache directory like any other dataset, so the renderer loads it
-    // with matrix_from_dega_files exactly as it would a Clustergram that shipped
-    // inside a DegaFiles folder.
-    const mount_id = server.add_local_mount(out_dir)
-    const base_url = `${server.origin}/data/${mount_id}`
-
-    // Taller than a Landscape window: a Clustergram's rows divide the height
-    // between them, so vertical space is what decides how many genes stay
-    // legible. Clamped to the display so it cannot open partly offscreen.
-    const work_area = screen.getPrimaryDisplay().workAreaSize
-    const win = create_window({
-      width: Math.min(1440, work_area.width - 40),
-      height: Math.min(1100, work_area.height - 40),
-    })
-    const new_window_id = win.__celldega_window_id
-    obs_app.set_window(new_window_id, {
-      title: `${label || category} — Clustergram`,
-      view_type: 'clustergram',
-      scope_id: scope_id || null,
-      label: label || category,
-      clustergram: { base_url, name, category, zscore, top_genes, dot_plot, cached, stats },
-    })
-
-    return { ok: true, base_url, name, cached, window_id: new_window_id, stats }
+    // A cached matrix may be opened with another Landscape, so refresh the
+    // stable linking identity independently of the numeric cache key.
+    spec = { ...spec, label, scope_id, dataset }
+    await clustergram_store.write(clustergram_cache_root(), key, spec)
+    pending_clustergrams.delete(key)
+    return { ok: true, spec: mount_clustergram({ ...spec, cached }) }
   })
 
   // Open a Yearbook in its own window, over the same dataset.
@@ -776,6 +812,14 @@ const register_ipc = () => {
 
   ipcMain.handle('save_signature_table', async (_event, options) => {
     const { anndata_path, category, normalization = 'log1p_cpm', zscore = 'row' } = options || {}
+    let matrix_path
+    if (options?.key) {
+      try {
+        matrix_path = (await clustergram_store.read(clustergram_cache_root(), options.key)).matrix_path
+      } catch (err) {
+        return { ok: false, error: err.message }
+      }
+    }
     const result = await dialog.showSaveDialog(focused_window(), {
       title: 'Save signatures',
       defaultPath: `${category}_signatures.csv`,
@@ -788,7 +832,7 @@ const register_ipc = () => {
 
     const written = await python_worker.request(
       'signature_dataframe',
-      { path: anndata_path, category, out_file: result.filePath, normalization, zscore },
+      { path: anndata_path, matrix_path, category, out_file: result.filePath, normalization, zscore },
       { timeout_ms: 900000 }
     )
     return written.ok ? { ok: true, ...written.result } : { ok: false, error: written.error }
